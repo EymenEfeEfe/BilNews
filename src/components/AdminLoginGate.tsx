@@ -11,13 +11,15 @@ import {
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2, ExternalLink } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2, ExternalLink, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ALLOWED_ADMIN_EMAIL = 'eymosuruk@gmail.com';
 const ALLOWED_ADMIN_PASS = 'Obosbucoku.1';
 const FIREBASE_PROVIDERS_URL =
   'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/providers';
+const FIREBASE_SETTINGS_URL =
+  'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/settings';
 
 interface AdminLoginGateProps {
   onAuthenticated: () => void;
@@ -31,11 +33,49 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showGoogleFallback, setShowGoogleFallback] = useState(false);
   const [showConsoleGuide, setShowConsoleGuide] = useState(false);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 
   const completeUnlock = () => {
     sessionStorage.setItem('bilinfom_admin_verified', 'true');
     toast.success('Admin Paneli açıldı! Hoş geldiniz.');
     onAuthenticated();
+  };
+
+  const handleCopyDomain = async () => {
+    if (!unauthorizedDomain) return;
+    try {
+      await navigator.clipboard.writeText(unauthorizedDomain);
+      setCopiedDomain(true);
+      toast.success('Domain kopyalandı!');
+      setTimeout(() => setCopiedDomain(false), 2000);
+    } catch {
+      toast.error('Kopyalanamadı, lütfen elle seçip kopyalayın.');
+    }
+  };
+
+  const handlePopupError = (err: any) => {
+    const code = err?.code || '';
+    if (code === 'auth/unauthorized-domain') {
+      setUnauthorizedDomain(currentHostname);
+      setShowGoogleFallback(true);
+      setShowConsoleGuide(true);
+      setErrorMessage(
+        `Bu site adresi (${currentHostname}) Firebase yetkili domain listesinde ekli değil.`
+      );
+      return;
+    }
+    setShowGoogleFallback(true);
+    setShowConsoleGuide(true);
+    if (code === 'auth/popup-blocked') {
+      setErrorMessage('Tarayıcı açılır pencereyi engelledi. Aşağıdaki butonla tekrar deneyin.');
+    } else if (code === 'auth/popup-closed-by-user') {
+      setErrorMessage('Google giriş penceresi kapatıldı.');
+    } else {
+      setErrorMessage(err?.message || 'Google doğrulaması tamamlanamadı.');
+    }
   };
 
   const authenticateViaGoogleFallback = async (linkPassword: boolean) => {
@@ -61,6 +101,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     setErrorMessage(null);
     setShowGoogleFallback(false);
     setShowConsoleGuide(false);
+    setUnauthorizedDomain(null);
 
     const normalizedEmail = email.trim().toLowerCase();
 
@@ -71,7 +112,6 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
     setIsSubmitting(true);
     try {
-      // If already signed into Firebase Auth with the CEO email, unlock immediately
       if (auth.currentUser && auth.currentUser.email?.toLowerCase() === ALLOWED_ADMIN_EMAIL) {
         const hasPasswordProvider = auth.currentUser.providerData.some(
           (p) => p.providerId === 'password'
@@ -88,7 +128,6 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         return;
       }
 
-      // Try Email/Password authentication in Firebase
       try {
         await signInWithEmailAndPassword(auth, ALLOWED_ADMIN_EMAIL, password);
         completeUnlock();
@@ -97,18 +136,11 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         const code = signInErr?.code || '';
 
         if (code === 'auth/operation-not-allowed') {
-          // Automatically fall back to Google popup verification so user can enter right away
           try {
             await authenticateViaGoogleFallback(false);
             return;
           } catch (popupErr: any) {
-            setShowGoogleFallback(true);
-            setShowConsoleGuide(true);
-            if (popupErr?.code === 'auth/popup-blocked') {
-              setErrorMessage('Tarayıcı açılır pencereyi engelledi. Devam etmek için aşağıdaki butona tıklayın.');
-            } else {
-              setErrorMessage('Google doğrulaması tamamlanamadı. Tekrar denemek için aşağıdaki butonu kullanın.');
-            }
+            handlePopupError(popupErr);
             return;
           }
         }
@@ -124,9 +156,8 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
               try {
                 await authenticateViaGoogleFallback(true);
                 return;
-              } catch {
-                setShowGoogleFallback(true);
-                setErrorMessage('Hesabınızı şifreyle eşleştirmek için aşağıdaki butonla Google doğrulamasını tamamlayın.');
+              } catch (popupErr: any) {
+                handlePopupError(popupErr);
                 return;
               }
             }
@@ -134,10 +165,8 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
               try {
                 await authenticateViaGoogleFallback(false);
                 return;
-              } catch {
-                setShowGoogleFallback(true);
-                setShowConsoleGuide(true);
-                setErrorMessage('Devam etmek için aşağıdaki butonla Google doğrulamasını tamamlayın.');
+              } catch (popupErr: any) {
+                handlePopupError(popupErr);
                 return;
               }
             }
@@ -158,10 +187,11 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
   const handleGoogleVerifyAndLink = async () => {
     setIsSubmitting(true);
     setErrorMessage(null);
+    setUnauthorizedDomain(null);
     try {
       await authenticateViaGoogleFallback(true);
     } catch (err: any) {
-      setErrorMessage(err?.message || 'Google doğrulaması başarısız oldu.');
+      handlePopupError(err);
     } finally {
       setIsSubmitting(false);
     }
@@ -188,17 +218,50 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             {errorMessage && (
               <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                <div className="space-y-2">
-                  <p>{errorMessage}</p>
+                <div className="space-y-2.5 flex-1">
+                  <p className="font-medium">{errorMessage}</p>
+
+                  {unauthorizedDomain && (
+                    <div className="p-2.5 rounded bg-white border border-amber-200 space-y-2">
+                      <p className="text-[11px] text-slate-600">
+                        Vercel adresinizin Google girişi yapabilmesi için Firebase Console → Authentication → Settings → <strong>Authorized domains</strong> listesine şu adresi ekleyin:
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 px-2 py-1 rounded bg-slate-100 text-slate-900 font-mono text-[11px] truncate">
+                          {unauthorizedDomain}
+                        </code>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleCopyDomain}
+                          className="h-7 px-2 text-[11px]"
+                        >
+                          {copiedDomain ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        </Button>
+                      </div>
+                      <a
+                        href={FIREBASE_SETTINGS_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline text-[11px]"
+                      >
+                        Yetkili Domain Ayarlarını Aç <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
+
                   {showConsoleGuide && (
-                    <a
-                      href={FIREBASE_PROVIDERS_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
-                    >
-                      Firebase Console&apos;da Email/Password&apos;u aç <ExternalLink className="w-3 h-3" />
-                    </a>
+                    <div className="pt-1">
+                      <a
+                        href={FIREBASE_PROVIDERS_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline text-[11px]"
+                      >
+                        Firebase Console&apos;da Email/Password&apos;u aç <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
                   )}
                 </div>
               </div>

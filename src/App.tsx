@@ -168,9 +168,15 @@ export default function App() {
   const handleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
-      toast.success("Successfully logged in!");
-    } catch (e) {
-      toast.error("Login failed.");
+      toast.success("Giriş başarılı!");
+    } catch (e: any) {
+      if (e?.code === 'auth/unauthorized-domain') {
+        toast.error(`Domain yetkili değil: ${window.location.hostname}`, {
+          description: "Bu adresi Firebase Console → Authentication → Settings → Authorized domains kısmına ekleyin.",
+        });
+      } else {
+        toast.error("Giriş yapılamadı.");
+      }
     }
   };
 
