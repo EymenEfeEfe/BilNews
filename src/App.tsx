@@ -50,7 +50,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import SaturnLogo from '@/src/components/SaturnLogo';
 import AdminNewsDesk from '@/src/components/AdminNewsDesk';
-import AdminUserManager from '@/src/components/AdminUserManager';
+import AdminLoginGate from '@/src/components/AdminLoginGate';
 
 // Types
 interface NewsArticle {
@@ -82,12 +82,13 @@ interface Comment {
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isCEO, setIsCEO] = useState(false);
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [newsLoading, setNewsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'news' | 'forum' | 'admin'>('news');
-  const [adminTab, setAdminTab] = useState<'desk' | 'users'>('desk');
   const [news, setNews] = useState<NewsArticle[]>([]);
+  const [newsSearch, setNewsSearch] = useState('');
+  const [selectedNews, setSelectedNews] = useState<NewsArticle | null>(null);
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -102,44 +103,17 @@ export default function App() {
       setUser(u);
       if (u) {
         syncUserProfile(u);
-        const wasAdmin = isAdmin;
-        const adminStatus = await checkAdminStatus(u);
-        if (adminStatus && !wasAdmin) {
-          toast.success("Identity Verified: Welcome Admin Desk", {
-            description: "You have full editorial and management access.",
-            icon: <ShieldCheck className="w-4 h-4 text-red-500" />
-          });
-        }
+        const isCeoEmail = u.email?.toLowerCase() === 'eymosuruk@gmail.com';
+        const hasPasswordSession = u.providerData.some((p) => p.providerId === 'password');
+        const hasSessionUnlock = sessionStorage.getItem('bilinfom_admin_verified') === 'true';
+        setAdminUnlocked(Boolean(isCeoEmail && (hasPasswordSession || hasSessionUnlock)));
       } else {
-        setIsAdmin(false);
-        setIsCEO(false);
+        setAdminUnlocked(false);
       }
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
-
-  const checkAdminStatus = async (u: FirebaseUser): Promise<boolean> => {
-    // Explicit whitelist for user email directly in UI
-    if (u.email === 'eymosuruk@gmail.com') {
-      setIsAdmin(true);
-      setIsCEO(true);
-      return true;
-    }
-
-    try {
-      const adminSnap = await getDoc(doc(db, 'admins', u.uid));
-      const exists = adminSnap.exists();
-      setIsAdmin(exists);
-      setIsCEO(false);
-      return exists;
-    } catch (e) {
-      console.log("Admin check failed", e);
-      setIsAdmin(false);
-      setIsCEO(false);
-      return false;
-    }
-  };
 
   const syncUserProfile = async (u: FirebaseUser) => {
     const userRef = doc(db, 'users', u.uid);
@@ -147,9 +121,10 @@ export default function App() {
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
         await setDoc(userRef, {
-          username: u.displayName || 'Anonymous',
-          email: u.email,
-          avatarUrl: u.photoURL,
+          username: u.displayName || u.email?.split('@')[0] || 'Anonymous',
+          email: u.email || '',
+          role: 'user',
+          avatarUrl: u.photoURL || null,
           createdAt: serverTimestamp()
         });
       }
@@ -163,7 +138,11 @@ export default function App() {
     const newsQuery = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
     const unsubscribeNews = onSnapshot(newsQuery, (snap) => {
       setNews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NewsArticle)));
-    }, (e) => handleFirestoreError(e, OperationType.LIST, 'news'));
+      setNewsLoading(false);
+    }, (e) => {
+      setNewsLoading(false);
+      handleFirestoreError(e, OperationType.LIST, 'news');
+    });
 
     const postsQuery = query(collection(db, 'forum_posts'), orderBy('createdAt', 'desc'));
     const unsubscribePosts = onSnapshot(postsQuery, (snap) => {
@@ -196,11 +175,19 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    sessionStorage.removeItem('bilinfom_admin_verified');
     await signOut(auth);
-    toast.info("Logged out.");
+    toast.info("Oturum kapatıldı.");
     setActiveTab('news');
-    setIsAdmin(false);
-    setIsCEO(false);
+    setAdminUnlocked(false);
+  };
+
+  const handleLockAdmin = async () => {
+    sessionStorage.removeItem('bilinfom_admin_verified');
+    await signOut(auth);
+    setAdminUnlocked(false);
+    setActiveTab('news');
+    toast.info("Admin oturumu kilitlendi.");
   };
 
   const handleCreatePost = async () => {
@@ -227,11 +214,12 @@ export default function App() {
 
   const handleCreateComment = async () => {
     if (!user || !selectedPost) return;
-    if (!newComment) return;
+    if (!newComment.trim()) return;
 
     try {
       await addDoc(collection(db, `forum_posts/${selectedPost.id}/comments`), {
-        content: newComment,
+        postId: selectedPost.id,
+        content: newComment.trim(),
         authorId: user.uid,
         authorName: user.displayName || 'Anonymous',
         createdAt: serverTimestamp()
@@ -242,6 +230,19 @@ export default function App() {
       handleFirestoreError(e, OperationType.CREATE, `forum_posts/${selectedPost.id}/comments`);
     }
   };
+
+  const filteredNews = news.filter((item) => {
+    if (!newsSearch.trim()) return true;
+    const q = newsSearch.toLowerCase();
+    return (
+      item.title.toLowerCase().includes(q) ||
+      item.content.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q)
+    );
+  });
+
+  const isAuthorizedAdminSession =
+    adminUnlocked && user?.email?.toLowerCase() === 'eymosuruk@gmail.com';
 
   if (loading) {
     return (
@@ -258,7 +259,7 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-white/80 backdrop-blur-md">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setSelectedPost(null); setActiveTab('news'); }}>
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setSelectedPost(null); setSelectedNews(null); setActiveTab('news'); }}>
             <div className="text-blue-600">
               <SaturnLogo className="w-8 h-8" color="currentColor" />
             </div>
@@ -267,28 +268,26 @@ export default function App() {
 
           <nav className="hidden md:flex items-center gap-6">
             <button 
-              onClick={() => { setActiveTab('news'); setSelectedPost(null); }}
+              onClick={() => { setActiveTab('news'); setSelectedPost(null); setSelectedNews(null); }}
               className={`flex items-center gap-2 text-sm font-medium transition-colors ${activeTab === 'news' ? 'text-blue-600' : 'text-slate-600 hover:text-blue-500'}`}
             >
               <Newspaper className="w-4 h-4" />
               News
             </button>
             <button 
-              onClick={() => { setActiveTab('forum'); setSelectedPost(null); }}
+              onClick={() => { setActiveTab('forum'); setSelectedPost(null); setSelectedNews(null); }}
               className={`flex items-center gap-2 text-sm font-medium transition-colors ${activeTab === 'forum' ? 'text-blue-600' : 'text-slate-600 hover:text-blue-500'}`}
             >
               <MessageSquare className="w-4 h-4" />
               Forum
             </button>
-            {isAdmin && (
-              <button 
-                onClick={() => { setActiveTab('admin'); setSelectedPost(null); }}
-                className={`flex items-center gap-2 text-sm font-medium transition-colors ${activeTab === 'admin' ? 'text-red-600' : 'text-slate-600 hover:text-red-500'}`}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Admin
-              </button>
-            )}
+            <button 
+              onClick={() => { setActiveTab('admin'); setSelectedPost(null); setSelectedNews(null); }}
+              className={`flex items-center gap-2 text-sm font-medium transition-colors ${activeTab === 'admin' ? 'text-red-600 font-semibold' : 'text-slate-600 hover:text-red-500'}`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Admin Panel
+            </button>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -313,7 +312,7 @@ export default function App() {
 
       <main className="flex-1 container mx-auto px-4 py-8 max-w-7xl">
         <AnimatePresence mode="wait">
-          {activeTab === 'admin' && isAdmin ? (
+          {activeTab === 'admin' ? (
             <motion.div
               key="admin-view"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -321,26 +320,62 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.98 }}
               className="space-y-6"
             >
-              {isCEO && (
-                <div className="flex gap-4 p-1 bg-white rounded-lg shadow-sm w-fit mx-auto border mb-8">
-                  <Button 
-                    variant={adminTab === 'desk' ? 'default' : 'ghost'} 
-                    onClick={() => setAdminTab('desk')}
-                    className={adminTab === 'desk' ? 'bg-blue-600' : ''}
-                  >
-                    News Desk
-                  </Button>
-                  <Button 
-                    variant={adminTab === 'users' ? 'default' : 'ghost'} 
-                    onClick={() => setAdminTab('users')}
-                    className={adminTab === 'users' ? 'bg-red-600' : ''}
-                  >
-                    Admin Management
-                  </Button>
-                </div>
+              {isAuthorizedAdminSession ? (
+                <>
+                  <div className="flex items-center justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLockAdmin}
+                      className="text-red-600 border-red-200 hover:bg-red-50 gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Admin Çıkışı Yap
+                    </Button>
+                  </div>
+                  <AdminNewsDesk />
+                </>
+              ) : (
+                <AdminLoginGate onAuthenticated={() => setAdminUnlocked(true)} />
               )}
-              
-              {adminTab === 'desk' || !isCEO ? <AdminNewsDesk /> : <AdminUserManager />}
+            </motion.div>
+          ) : selectedNews ? (
+            <motion.div
+              key="news-detail"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="max-w-4xl mx-auto"
+            >
+              <Button variant="ghost" onClick={() => setSelectedNews(null)} className="mb-6 gap-2">
+                <ChevronRight className="w-4 h-4 rotate-180" /> Haberlere Dön
+              </Button>
+              <Card className="border-none shadow-lg overflow-hidden bg-white">
+                <div className="aspect-video bg-slate-200 overflow-hidden relative">
+                  <img
+                    src={selectedNews.imageUrl || `https://picsum.photos/seed/${selectedNews.id}/1200/675`}
+                    alt={selectedNews.title}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute top-4 left-4">
+                    <Badge className="bg-blue-600 border-none">{selectedNews.category}</Badge>
+                  </div>
+                </div>
+                <CardHeader className="space-y-2">
+                  <CardDescription className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+                    {selectedNews.authorName} • {selectedNews.createdAt?.toDate ? selectedNews.createdAt.toDate().toLocaleDateString('tr-TR') : 'Bugün'}
+                  </CardDescription>
+                  <CardTitle className="text-3xl font-black tracking-tight text-slate-900">
+                    {selectedNews.title}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-slate-700 whitespace-pre-wrap leading-relaxed text-base">
+                    {selectedNews.content}
+                  </p>
+                </CardContent>
+              </Card>
             </motion.div>
           ) : selectedPost ? (
             <motion.div
@@ -435,13 +470,27 @@ export default function App() {
                 </div>
                 <div className="relative">
                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                   <Input className="pl-10 w-full md:w-64 bg-white border-none shadow-sm" placeholder="Search news..." />
+                   <Input
+                     className="pl-10 w-full md:w-64 bg-white border-none shadow-sm"
+                     placeholder="Haberlerde ara..."
+                     value={newsSearch}
+                     onChange={(e) => setNewsSearch(e.target.value)}
+                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {news.length > 0 ? news.map((item) => (
-                  <Card key={item.id} className="group overflow-hidden border-none shadow-sm hover:shadow-xl transition-all h-full flex flex-col cursor-pointer">
+                {newsLoading ? (
+                  <div className="col-span-full py-20 text-center text-slate-400">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 opacity-20" />
+                    <p>Haberler yükleniyor...</p>
+                  </div>
+                ) : filteredNews.length > 0 ? filteredNews.map((item) => (
+                  <Card
+                    key={item.id}
+                    onClick={() => setSelectedNews(item)}
+                    className="group overflow-hidden border-none shadow-sm hover:shadow-xl transition-all h-full flex flex-col cursor-pointer"
+                  >
                     <div className="aspect-video bg-slate-200 overflow-hidden relative">
                       <img 
                         src={item.imageUrl || `https://picsum.photos/seed/${item.id}/800/450`} 
@@ -458,7 +507,7 @@ export default function App() {
                         {item.title}
                       </CardTitle>
                       <CardDescription className="flex items-center gap-2">
-                        {item.authorName} • {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Today'}
+                        {item.authorName} • {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString('tr-TR') : 'Bugün'}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="flex-1">
@@ -468,14 +517,15 @@ export default function App() {
                     </CardContent>
                     <CardFooter className="pt-0">
                        <Button variant="ghost" className="p-0 text-blue-600 font-bold hover:bg-transparent">
-                         READ MORE <ChevronRight className="w-4 h-4 ml-1" />
+                         DEVAMINI OKU <ChevronRight className="w-4 h-4 ml-1" />
                        </Button>
                     </CardFooter>
                   </Card>
                 )) : (
-                  <div className="col-span-full py-20 text-center text-slate-400">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 opacity-20" />
-                    <p>Loading the latest stories...</p>
+                  <div className="col-span-full py-20 text-center text-slate-400 bg-white rounded-xl">
+                    <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                    <p className="font-medium text-slate-500">Henüz haber bulunmuyor.</p>
+                    <p className="text-xs mt-1">Admin Panel üzerinden ilk haberi ekleyebilirsiniz.</p>
                   </div>
                 )}
               </div>
@@ -591,28 +641,26 @@ export default function App() {
       {/* Mobile Nav */}
       <div className="md:hidden fixed bottom-0 left-0 z-50 w-full h-16 bg-white border-t flex items-center justify-around px-2 pb-safe">
         <button 
-          onClick={() => { setActiveTab('news'); setSelectedPost(null); }}
+          onClick={() => { setActiveTab('news'); setSelectedPost(null); setSelectedNews(null); }}
           className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'news' ? 'text-blue-600' : 'text-slate-400'}`}
         >
           <Newspaper className="w-5 h-5" />
           <span className="text-[10px] font-bold">NEWS</span>
         </button>
         <button 
-          onClick={() => { setActiveTab('forum'); setSelectedPost(null); }}
+          onClick={() => { setActiveTab('forum'); setSelectedPost(null); setSelectedNews(null); }}
           className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'forum' ? 'text-blue-600' : 'text-slate-400'}`}
         >
           <MessageSquare className="w-5 h-5" />
           <span className="text-[10px] font-bold">FORUM</span>
         </button>
-        {isAdmin && (
-          <button 
-            onClick={() => { setActiveTab('admin'); setSelectedPost(null); }}
-            className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'admin' ? 'text-red-600' : 'text-slate-400'}`}
-          >
-            <ShieldCheck className="w-5 h-5" />
-            <span className="text-[10px] font-bold">ADMIN</span>
-          </button>
-        )}
+        <button 
+          onClick={() => { setActiveTab('admin'); setSelectedPost(null); setSelectedNews(null); }}
+          className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'admin' ? 'text-red-600' : 'text-slate-400'}`}
+        >
+          <ShieldCheck className="w-5 h-5" />
+          <span className="text-[10px] font-bold">ADMIN</span>
+        </button>
       </div>
 
       <footer className="bg-slate-900 text-slate-400 py-12 px-4 pb-24 md:pb-12">
@@ -630,8 +678,9 @@ export default function App() {
           <div>
             <h4 className="text-white font-bold mb-4 text-sm uppercase tracking-widest">Platform</h4>
             <ul className="space-y-2 text-sm">
-              <li><button onClick={() => setActiveTab('news')} className="hover:text-blue-400 transition-colors">Headlines</button></li>
-              <li><button onClick={() => setActiveTab('forum')} className="hover:text-blue-400 transition-colors">Discussions</button></li>
+              <li><button onClick={() => { setActiveTab('news'); setSelectedNews(null); }} className="hover:text-blue-400 transition-colors">Headlines</button></li>
+              <li><button onClick={() => { setActiveTab('forum'); setSelectedPost(null); }} className="hover:text-blue-400 transition-colors">Discussions</button></li>
+              <li><button onClick={() => { setActiveTab('admin'); setSelectedPost(null); setSelectedNews(null); }} className="hover:text-red-400 transition-colors">Admin Panel</button></li>
             </ul>
           </div>
           <div>

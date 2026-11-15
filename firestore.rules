@@ -10,15 +10,15 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
-    
+
     function isCEO() {
       return isSignedIn() && request.auth.token.email == 'eymosuruk@gmail.com';
     }
-    
+
     function isAdmin() {
       return isSignedIn() && (isCEO() || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
-    
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -36,45 +36,46 @@ service cloud.firestore {
     }
 
     // --- Entity Specific Validators ---
-    
+
     function isValidUser(data) {
-      return data.keys().hasAll(['name', 'email', 'role', 'createdAt']) &&
-             data.keys().size() <= 10 &&
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+      return data.keys().hasAll(['username', 'email', 'role', 'createdAt']) &&
+             data.keys().hasOnly(['username', 'email', 'role', 'avatarUrl', 'createdAt']) &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 100 &&
              data.email is string && data.email.size() <= 200 &&
-             data.role in ['admin', 'user'] &&
+             data.role == 'user' &&
+             (!('avatarUrl' in data) || data.avatarUrl == null || (data.avatarUrl is string && data.avatarUrl.size() <= 1000)) &&
              data.createdAt == request.time;
     }
 
     function isValidNews(data) {
       return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'category', 'createdAt']) &&
-             data.keys().size() <= 10 &&
+             data.keys().hasOnly(['title', 'content', 'authorId', 'authorName', 'category', 'imageUrl', 'createdAt', 'updatedAt']) &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
-             data.content is string && data.content.size() <= 10000 &&
-             data.authorId == request.auth.uid &&
-             data.authorName is string &&
-             data.category is string &&
-             data.createdAt == request.time;
+             data.content is string && data.content.size() > 0 && data.content.size() <= 10000 &&
+             data.authorId is string && data.authorId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000));
     }
 
     function isValidForumPost(data) {
       return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'category', 'createdAt', 'commentCount']) &&
-             data.keys().size() <= 10 &&
+             data.keys().hasOnly(['title', 'content', 'authorId', 'authorName', 'category', 'createdAt', 'commentCount']) &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
-             data.content is string && data.content.size() <= 5000 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 5000 &&
              data.authorId == request.auth.uid &&
-             data.authorName is string &&
-             data.category is string &&
-             data.commentCount is number &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.commentCount is number && data.commentCount >= 0 &&
              data.createdAt == request.time;
     }
 
     function isValidComment(data) {
       return data.keys().hasAll(['postId', 'authorId', 'authorName', 'content', 'createdAt']) &&
-             data.keys().size() <= 10 &&
-             data.postId is string &&
+             data.keys().hasOnly(['postId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+             data.postId is string && data.postId.size() <= 128 &&
              data.authorId == request.auth.uid &&
-             data.authorName is string &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
              data.content is string && data.content.size() > 0 && data.content.size() <= 1000 &&
              data.createdAt == request.time;
     }
@@ -82,43 +83,60 @@ service cloud.firestore {
     // --- Match Rules ---
 
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId) && isValidUser(incoming());
-      allow update: if isOwner(userId) && 
-                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatarUrl']) &&
-                      incoming().name is string && incoming().name.size() <= 100;
+      allow get: if isOwner(userId) || isCEO();
+      allow list: if isCEO();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['username', 'avatarUrl']) &&
+                      incoming().username is string && incoming().username.size() > 0 && incoming().username.size() <= 100 &&
+                      incoming().role == existing().role &&
+                      incoming().email == existing().email &&
+                      incoming().createdAt == existing().createdAt;
     }
 
     match /admins/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isCEO();
+      allow get: if isOwner(userId) || isCEO();
+      allow list: if isCEO();
+      allow write: if isValidId(userId) && isCEO();
     }
 
     match /news/{articleId} {
       allow read: if true;
-      allow create: if isAdmin() && isValidNews(incoming());
-      allow update: if isAdmin() && isValidNews(incoming());
-      allow delete: if isAdmin();
+      allow create: if isValidId(articleId) && isAdmin() && isValidNews(incoming()) &&
+                      incoming().authorId == request.auth.uid &&
+                      incoming().createdAt == request.time;
+      allow update: if isValidId(articleId) && isAdmin() && isValidNews(incoming()) &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().authorId == existing().authorId &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'imageUrl', 'updatedAt']) &&
+                      incoming().updatedAt == request.time;
+      allow delete: if isValidId(articleId) && isAdmin();
     }
 
     match /forum_posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn() && isValidForumPost(incoming());
-      allow update: if isOwner(existing().authorId) && 
+      allow create: if isValidId(postId) && isSignedIn() && isValidForumPost(incoming());
+      allow update: if isValidId(postId) && isOwner(existing().authorId) &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category']) &&
-                      incoming().title is string && incoming().title.size() <= 200;
-      allow delete: if isOwner(existing().authorId) || isAdmin();
+                      incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 200 &&
+                      incoming().content is string && incoming().content.size() > 0 && incoming().content.size() <= 5000 &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().authorId == existing().authorId;
+      allow delete: if isValidId(postId) && (isOwner(existing().authorId) || isAdmin());
 
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn() && isValidComment(incoming());
-        allow delete: if isOwner(existing().authorId) || isAdmin();
+        allow create: if isValidId(commentId) && isSignedIn() &&
+                        exists(/databases/$(database)/documents/forum_posts/$(postId)) &&
+                        isValidComment(incoming()) &&
+                        incoming().postId == postId;
+        allow delete: if isValidId(commentId) && (isOwner(existing().authorId) || isAdmin());
       }
     }
 
     match /categories/{categoryId} {
       allow read: if true;
-      allow write: if false; 
+      allow write: if false;
     }
   }
 }

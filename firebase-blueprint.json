@@ -5,63 +5,77 @@
       "description": "Public and private information for a user",
       "type": "object",
       "properties": {
-        "username": { "type": "string", "description": "Display name" },
-        "email": { "type": "string", "format": "email" },
-        "avatarUrl": { "type": "string" },
-        "bio": { "type": "string" },
+        "username": { "type": "string", "description": "Display name", "maxLength": 100 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "role": { "type": "string", "enum": ["user"] },
+        "avatarUrl": { "type": "string", "maxLength": 1000 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["username", "email", "createdAt"]
+      "required": ["username", "email", "role", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin Record",
+      "description": "Whitelisted admin entry",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email"]
     },
     "NewsArticle": {
       "title": "News Article",
       "description": "A news story published on the platform",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "content": { "type": "string" },
-        "authorId": { "type": "string" },
-        "authorName": { "type": "string" },
-        "imageUrl": { "type": "string" },
-        "category": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 10000 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "category": { "type": "string", "maxLength": 50 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["title", "content", "authorId", "category", "createdAt"]
+      "required": ["title", "content", "authorId", "authorName", "category", "createdAt"]
     },
     "ForumPost": {
       "title": "Forum Post",
       "description": "A discussion thread in the forum",
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "content": { "type": "string" },
-        "authorId": { "type": "string" },
-        "authorName": { "type": "string" },
-        "category": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "category": { "type": "string", "maxLength": 50 },
         "createdAt": { "type": "string", "format": "date-time" },
         "commentCount": { "type": "integer" }
       },
-      "required": ["title", "content", "authorId", "category", "createdAt"]
+      "required": ["title", "content", "authorId", "authorName", "category", "createdAt", "commentCount"]
     },
     "Comment": {
       "title": "Comment",
       "description": "A comment on a forum post",
       "type": "object",
       "properties": {
-        "postId": { "type": "string" },
-        "authorId": { "type": "string" },
-        "authorName": { "type": "string" },
-        "content": { "type": "string" },
+        "postId": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "content": { "type": "string", "maxLength": 1000 },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["postId", "authorId", "content", "createdAt"]
+      "required": ["postId", "authorId", "authorName", "content", "createdAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles"
+    },
+    "/admins/{userId}": {
+      "schema": "Admin",
+      "description": "Whitelisted admin users"
     },
     "/news/{articleId}": {
       "schema": "NewsArticle",
