@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Public and private information for a user",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "description": "Display name" },
+        "email": { "type": "string", "format": "email" },
+        "avatarUrl": { "type": "string" },
+        "bio": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "email", "createdAt"]
+    },
+    "NewsArticle": {
+      "title": "News Article",
+      "description": "A news story published on the platform",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "authorId", "category", "createdAt"]
+    },
+    "ForumPost": {
+      "title": "Forum Post",
+      "description": "A discussion thread in the forum",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "commentCount": { "type": "integer" }
+      },
+      "required": ["title", "content", "authorId", "category", "createdAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on a forum post",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "authorId", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/news/{articleId}": {
+      "schema": "NewsArticle",
+      "description": "News articles"
+    },
+    "/forum_posts/{postId}": {
+      "schema": "ForumPost",
+      "description": "Forum discussion posts"
+    },
+    "/forum_posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments on forum posts"
+    }
+  }
+}
