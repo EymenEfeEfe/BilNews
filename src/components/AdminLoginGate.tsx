@@ -11,11 +11,13 @@ import {
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ALLOWED_ADMIN_EMAIL = 'eymosuruk@gmail.com';
 const ALLOWED_ADMIN_PASS = 'Obosbucoku.1';
+const FIREBASE_PROVIDERS_URL =
+  'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/providers';
 
 interface AdminLoginGateProps {
   onAuthenticated: () => void;
@@ -27,8 +29,8 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [needsGoogleLink, setNeedsGoogleLink] = useState(false);
-  const [providerDisabled, setProviderDisabled] = useState(false);
+  const [showGoogleFallback, setShowGoogleFallback] = useState(false);
+  const [showConsoleGuide, setShowConsoleGuide] = useState(false);
 
   const completeUnlock = () => {
     sessionStorage.setItem('bilinfom_admin_verified', 'true');
@@ -36,22 +38,40 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     onAuthenticated();
   };
 
+  const authenticateViaGoogleFallback = async (linkPassword: boolean) => {
+    const result = await signInWithPopup(auth, googleProvider);
+    if (result.user.email?.toLowerCase() !== ALLOWED_ADMIN_EMAIL) {
+      setErrorMessage('Yetkisiz hesap. Bu panele yalnızca yetkili admin hesabı erişebilir.');
+      return false;
+    }
+    if (linkPassword && password === ALLOWED_ADMIN_PASS) {
+      try {
+        const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
+        await linkWithCredential(result.user, cred);
+      } catch {
+        // Provider might not be enabled yet or already linked; Google auth still grants Firestore CEO access
+      }
+    }
+    completeUnlock();
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    setNeedsGoogleLink(false);
-    setProviderDisabled(false);
+    setShowGoogleFallback(false);
+    setShowConsoleGuide(false);
 
     const normalizedEmail = email.trim().toLowerCase();
 
     if (normalizedEmail !== ALLOWED_ADMIN_EMAIL || password !== ALLOWED_ADMIN_PASS) {
-      setErrorMessage('Yetkisiz giriş! Yalnızca yetkili admin e-postası ve şifresi ile giriş yapılabilir.');
+      setErrorMessage('Yetkisiz giriş! E-posta veya şifre hatalı.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // If already signed in via Google as the exact CEO email, link password if possible and unlock
+      // If already signed into Firebase Auth with the CEO email, unlock immediately
       if (auth.currentUser && auth.currentUser.email?.toLowerCase() === ALLOWED_ADMIN_EMAIL) {
         const hasPasswordProvider = auth.currentUser.providerData.some(
           (p) => p.providerId === 'password'
@@ -61,14 +81,14 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
             await linkWithCredential(auth.currentUser, cred);
           } catch {
-            // Even if Email/Password provider isn't enabled in Console yet, Google session proves ownership
+            // Safe to ignore if Email/Password provider is not enabled yet
           }
         }
         completeUnlock();
         return;
       }
 
-      // Sign in with Firebase Email/Password
+      // Try Email/Password authentication in Firebase
       try {
         await signInWithEmailAndPassword(auth, ALLOWED_ADMIN_EMAIL, password);
         completeUnlock();
@@ -77,15 +97,23 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         const code = signInErr?.code || '';
 
         if (code === 'auth/operation-not-allowed') {
-          setProviderDisabled(true);
-          setErrorMessage(
-            'Firebase Console üzerinde Email/Password giriş yöntemi henüz aktif edilmemiş. Aşağıdaki adımla aktif edebilir veya doğrudan Google ile doğrulayabilirsiniz.'
-          );
-          return;
+          // Automatically fall back to Google popup verification so user can enter right away
+          try {
+            await authenticateViaGoogleFallback(false);
+            return;
+          } catch (popupErr: any) {
+            setShowGoogleFallback(true);
+            setShowConsoleGuide(true);
+            if (popupErr?.code === 'auth/popup-blocked') {
+              setErrorMessage('Tarayıcı açılır pencereyi engelledi. Devam etmek için aşağıdaki butona tıklayın.');
+            } else {
+              setErrorMessage('Google doğrulaması tamamlanamadı. Tekrar denemek için aşağıdaki butonu kullanın.');
+            }
+            return;
+          }
         }
 
         if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
-          // Try creating the Firebase Auth user on first login
           try {
             await createUserWithEmailAndPassword(auth, ALLOWED_ADMIN_EMAIL, password);
             completeUnlock();
@@ -93,18 +121,25 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
           } catch (createErr: any) {
             const createCode = createErr?.code || '';
             if (createCode === 'auth/email-already-in-use') {
-              setNeedsGoogleLink(true);
-              setErrorMessage(
-                'Bu e-posta adresi daha önce Google ile oluşturulmuş. Şifreyi hesabınıza bağlamak için bir kez Google ile doğrulayın.'
-              );
-              return;
+              try {
+                await authenticateViaGoogleFallback(true);
+                return;
+              } catch {
+                setShowGoogleFallback(true);
+                setErrorMessage('Hesabınızı şifreyle eşleştirmek için aşağıdaki butonla Google doğrulamasını tamamlayın.');
+                return;
+              }
             }
             if (createCode === 'auth/operation-not-allowed') {
-              setProviderDisabled(true);
-              setErrorMessage(
-                'Firebase Console üzerinde Email/Password giriş yöntemi henüz aktif edilmemiş. Aşağıdan Google ile doğrulayabilirsiniz.'
-              );
-              return;
+              try {
+                await authenticateViaGoogleFallback(false);
+                return;
+              } catch {
+                setShowGoogleFallback(true);
+                setShowConsoleGuide(true);
+                setErrorMessage('Devam etmek için aşağıdaki butonla Google doğrulamasını tamamlayın.');
+                return;
+              }
             }
             throw createErr;
           }
@@ -124,20 +159,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      if (result.user.email?.toLowerCase() !== ALLOWED_ADMIN_EMAIL) {
-        setErrorMessage('Yetkisiz hesap. Bu panele yalnızca yetkili admin hesabı erişebilir.');
-        return;
-      }
-      if (password === ALLOWED_ADMIN_PASS) {
-        try {
-          const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
-          await linkWithCredential(result.user, cred);
-        } catch {
-          // Ignore if already linked or provider not enabled
-        }
-      }
-      completeUnlock();
+      await authenticateViaGoogleFallback(true);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Google doğrulaması başarısız oldu.');
     } finally {
@@ -164,14 +186,19 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             {errorMessage && (
-              <div className="p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs leading-relaxed flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
+              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
                 <div className="space-y-2">
                   <p>{errorMessage}</p>
-                  {providerDisabled && (
-                    <p className="text-[11px] text-red-600/90">
-                      Firebase Console → Authentication → Sign-in method → <strong>Email/Password</strong> seçeneğini etkinleştirin.
-                    </p>
+                  {showConsoleGuide && (
+                    <a
+                      href={FIREBASE_PROVIDERS_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                    >
+                      Firebase Console&apos;da Email/Password&apos;u aç <ExternalLink className="w-3 h-3" />
+                    </a>
                   )}
                 </div>
               </div>
@@ -238,7 +265,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
               )}
             </Button>
 
-            {(needsGoogleLink || providerDisabled) && (
+            {showGoogleFallback && (
               <Button
                 type="button"
                 variant="outline"
@@ -246,7 +273,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                 onClick={handleGoogleVerifyAndLink}
                 className="w-full border-blue-200 text-blue-700 hover:bg-blue-50"
               >
-                Google ile Doğrula
+                Google ile Doğrula ve Devam Et
               </Button>
             )}
           </CardFooter>
