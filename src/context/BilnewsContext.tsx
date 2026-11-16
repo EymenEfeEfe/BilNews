@@ -23,8 +23,12 @@ import { NewsArticle, NewsCategory, ForumPost } from '@/src/types';
 import { ARTICLE_CATEGORIES, getTurkishAuthError } from '@/src/lib/editorial';
 import { toast } from 'sonner';
 
-const ADMIN_EMAIL = 'eymosuruk@gmail.com';
+const ADMIN_EMAILS = ['eymosuruk@gmail.com', 'demirsozen67@gmail.com'];
 const ADMIN_SESSION_KEY = 'bilinfom_admin_verified';
+
+function isAllowedAdminEmail(email?: string | null): boolean {
+  return Boolean(email && ADMIN_EMAILS.includes(email.toLowerCase()));
+}
 
 interface BilnewsContextValue {
   user: FirebaseUser | null;
@@ -85,10 +89,10 @@ export function BilnewsProvider({ children }: { children: React.ReactNode }) {
       setUser(u);
       if (u) {
         syncUserProfile(u);
-        const isCeoEmail = u.email?.toLowerCase() === ADMIN_EMAIL;
+        const isAllowedAdmin = isAllowedAdminEmail(u.email);
         const hasPasswordSession = u.providerData.some((p) => p.providerId === 'password');
         const hasSessionUnlock = sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true';
-        setAdminUnlocked(Boolean(isCeoEmail && (hasPasswordSession || hasSessionUnlock)));
+        setAdminUnlocked(Boolean(isAllowedAdmin && (hasPasswordSession || hasSessionUnlock)));
       } else {
         setAdminUnlocked(false);
       }
@@ -201,7 +205,7 @@ export function BilnewsProvider({ children }: { children: React.ReactNode }) {
   };
 
   const isAuthorizedAdmin =
-    adminUnlocked && user?.email?.toLowerCase() === ADMIN_EMAIL;
+    adminUnlocked && isAllowedAdminEmail(user?.email);
 
   return (
     <BilnewsContext.Provider

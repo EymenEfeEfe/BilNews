@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signOut,
   EmailAuthProvider,
   linkWithCredential,
 } from '@/src/lib/firebase';
@@ -14,8 +15,10 @@ import { Input } from '@/components/ui/input';
 import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2, ExternalLink, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
-const ALLOWED_ADMIN_EMAIL = 'eymosuruk@gmail.com';
-const ALLOWED_ADMIN_PASS = 'Obosbucoku.1';
+const ALLOWED_ADMINS: Record<string, string> = {
+  'eymosuruk@gmail.com': 'Obosbucoku.1',
+  'demirsozen67@gmail.com': 'demirsozen1212',
+};
 const FIREBASE_PROVIDERS_URL =
   'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/providers';
 const FIREBASE_SETTINGS_URL =
@@ -78,15 +81,20 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     }
   };
 
-  const authenticateViaGoogleFallback = async (linkPassword: boolean) => {
+  const authenticateViaGoogleFallback = async (
+    targetEmail: string,
+    targetPassword: string,
+    linkPassword: boolean
+  ) => {
     const result = await signInWithPopup(auth, googleProvider);
-    if (result.user.email?.toLowerCase() !== ALLOWED_ADMIN_EMAIL) {
-      setErrorMessage('Yetkisiz hesap. Bu panele yalnızca yetkili yönetici hesabı erişebilir.');
+    const resultEmail = result.user.email?.toLowerCase() || '';
+    if (!resultEmail || !(resultEmail in ALLOWED_ADMINS) || (targetEmail && resultEmail !== targetEmail)) {
+      setErrorMessage('Yetkisiz hesap. Lütfen girdiğiniz yetkili yönetici hesabıyla doğrulayın.');
       return false;
     }
-    if (linkPassword && password === ALLOWED_ADMIN_PASS) {
+    if (linkPassword && ALLOWED_ADMINS[resultEmail] === targetPassword) {
       try {
-        const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
+        const cred = EmailAuthProvider.credential(resultEmail, targetPassword);
         await linkWithCredential(result.user, cred);
       } catch {
         // Provider might not be enabled yet or already linked
@@ -104,32 +112,36 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     setUnauthorizedDomain(null);
 
     const normalizedEmail = email.trim().toLowerCase();
+    const expectedPassword = ALLOWED_ADMINS[normalizedEmail];
 
-    if (normalizedEmail !== ALLOWED_ADMIN_EMAIL || password !== ALLOWED_ADMIN_PASS) {
+    if (!expectedPassword || password !== expectedPassword) {
       setErrorMessage('Yetkisiz giriş! E-posta veya şifre hatalı.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      if (auth.currentUser && auth.currentUser.email?.toLowerCase() === ALLOWED_ADMIN_EMAIL) {
-        const hasPasswordProvider = auth.currentUser.providerData.some(
-          (p) => p.providerId === 'password'
-        );
-        if (!hasPasswordProvider) {
-          try {
-            const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
-            await linkWithCredential(auth.currentUser, cred);
-          } catch {
-            // Safe to ignore
+      if (auth.currentUser) {
+        if (auth.currentUser.email?.toLowerCase() === normalizedEmail) {
+          const hasPasswordProvider = auth.currentUser.providerData.some(
+            (p) => p.providerId === 'password'
+          );
+          if (!hasPasswordProvider) {
+            try {
+              const cred = EmailAuthProvider.credential(normalizedEmail, password);
+              await linkWithCredential(auth.currentUser, cred);
+            } catch {
+              // Safe to ignore
+            }
           }
+          completeUnlock();
+          return;
         }
-        completeUnlock();
-        return;
+        await signOut(auth);
       }
 
       try {
-        await signInWithEmailAndPassword(auth, ALLOWED_ADMIN_EMAIL, password);
+        await signInWithEmailAndPassword(auth, normalizedEmail, password);
         completeUnlock();
         return;
       } catch (signInErr: any) {
@@ -137,7 +149,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
         if (code === 'auth/operation-not-allowed') {
           try {
-            await authenticateViaGoogleFallback(false);
+            await authenticateViaGoogleFallback(normalizedEmail, password, false);
             return;
           } catch (popupErr: any) {
             handlePopupError(popupErr);
@@ -147,14 +159,14 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
         if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
           try {
-            await createUserWithEmailAndPassword(auth, ALLOWED_ADMIN_EMAIL, password);
+            await createUserWithEmailAndPassword(auth, normalizedEmail, password);
             completeUnlock();
             return;
           } catch (createErr: any) {
             const createCode = createErr?.code || '';
             if (createCode === 'auth/email-already-in-use') {
               try {
-                await authenticateViaGoogleFallback(true);
+                await authenticateViaGoogleFallback(normalizedEmail, password, true);
                 return;
               } catch (popupErr: any) {
                 handlePopupError(popupErr);
@@ -163,7 +175,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             }
             if (createCode === 'auth/operation-not-allowed') {
               try {
-                await authenticateViaGoogleFallback(false);
+                await authenticateViaGoogleFallback(normalizedEmail, password, false);
                 return;
               } catch (popupErr: any) {
                 handlePopupError(popupErr);
@@ -189,7 +201,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     setErrorMessage(null);
     setUnauthorizedDomain(null);
     try {
-      await authenticateViaGoogleFallback(true);
+      await authenticateViaGoogleFallback(email.trim().toLowerCase(), password, true);
     } catch (err: any) {
       handlePopupError(err);
     } finally {
