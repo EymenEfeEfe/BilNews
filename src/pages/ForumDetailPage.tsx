@@ -22,7 +22,11 @@ import {
   LogIn,
   MessageSquare,
 } from 'lucide-react';
-import { normalizeCategory, formatTurkishDate } from '@/src/lib/editorial';
+import {
+  normalizeCategory,
+  formatTurkishDate,
+  formatRelativeTurkishDate,
+} from '@/src/lib/editorial';
 import { toast } from 'sonner';
 
 export default function ForumDetailPage() {
@@ -155,9 +159,20 @@ export default function ForumDetailPage() {
 
   if (postsLoading || fetchingPost) {
     return (
-      <div className="py-24 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 gap-3">
-        <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
-        <p className="text-sm">Tartışma yükleniyor...</p>
+      <div className="max-w-5xl mx-auto space-y-6">
+        <div className="h-4 w-28 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-8 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-8 space-y-4">
+            <div className="h-3 w-40 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+            <div className="h-7 w-5/6 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+            <div className="h-4 w-full rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+            <div className="h-4 w-3/4 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+          </div>
+          <div className="lg:col-span-4 rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+            <div className="h-5 w-32 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+            <div className="h-4 w-full rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -204,7 +219,9 @@ export default function ForumDetailPage() {
               <span aria-hidden="true">·</span>
               <span>{post.authorName}</span>
               <span aria-hidden="true">·</span>
-              <span>{formatTurkishDate(post.createdAt)}</span>
+              <span title={formatTurkishDate(post.createdAt)}>
+                {formatRelativeTurkishDate(post.createdAt)}
+              </span>
             </div>
 
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 leading-snug">
@@ -224,11 +241,19 @@ export default function ForumDetailPage() {
             </h2>
 
             {commentsLoading ? (
-              <div className="py-8 flex justify-center">
-                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+              <div className="space-y-3">
+                {[1, 2].map((n) => (
+                  <div
+                    key={n}
+                    className="rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-2"
+                  >
+                    <div className="h-3 w-28 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+                    <div className="h-4 w-4/5 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+                  </div>
+                ))}
               </div>
             ) : comments.length === 0 ? (
-              <div className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              <div className="rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 text-center text-sm text-slate-500 dark:text-slate-400">
                 Henüz yorum yapılmamış. İlk yorumu siz yazın.
               </div>
             ) : (
@@ -236,14 +261,17 @@ export default function ForumDetailPage() {
                 {comments.map((comment) => (
                   <div
                     key={comment.id}
-                    className="rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-2"
+                    className="rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-2"
                   >
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
                         {comment.authorName}
                       </span>
-                      <span className="text-slate-400 dark:text-slate-500">
-                        {formatTurkishDate(comment.createdAt)}
+                      <span
+                        className="text-slate-400 dark:text-slate-500"
+                        title={formatTurkishDate(comment.createdAt)}
+                      >
+                        {formatRelativeTurkishDate(comment.createdAt)}
                       </span>
                     </div>
                     <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">

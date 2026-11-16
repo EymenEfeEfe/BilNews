@@ -1,3 +1,6 @@
+import { formatDistanceToNow } from 'date-fns';
+import { tr } from 'date-fns/locale';
+
 export const ARTICLE_CATEGORIES = [
   'Okul Gündemi',
   'Duyurular',
@@ -137,6 +140,19 @@ export function formatTurkishDate(timestamp: any): string {
       month: 'long',
       year: 'numeric',
     });
+  } catch {
+    return 'Az önce';
+  }
+}
+
+export function formatRelativeTurkishDate(timestamp: any): string {
+  if (!timestamp) return 'Az önce';
+  try {
+    const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return 'Az önce';
+    const diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diffSeconds < 45) return 'Az önce';
+    return formatDistanceToNow(date, { addSuffix: true, locale: tr }).replace(/^yaklaşık\s+/i, '');
   } catch {
     return 'Az önce';
   }

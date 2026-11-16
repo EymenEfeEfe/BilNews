@@ -13,6 +13,20 @@
       },
       "required": ["username", "email", "role", "createdAt"]
     },
+    "UserBookmark": {
+      "title": "User Bookmark",
+      "description": "A saved news article in a user's personal favorites list",
+      "type": "object",
+      "properties": {
+        "articleId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 50 },
+        "imageUrl": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["articleId", "userId", "title", "category", "createdAt"]
+    },
     "Admin": {
       "title": "Admin Record",
       "description": "Whitelisted admin entry",
@@ -22,6 +36,18 @@
         "addedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["email"]
+    },
+    "AdminEmail": {
+      "title": "Admin Email Grant",
+      "description": "Email-based admin permission granted by the Super Admin",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "note": { "type": "string", "maxLength": 100 },
+        "addedBy": { "type": "string", "format": "email", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "addedBy", "createdAt"]
     },
     "Category": {
       "title": "News Category",
@@ -51,6 +77,77 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "content", "authorId", "authorName", "category", "createdAt"]
+    },
+    "ArticleReaction": {
+      "title": "Article Reaction",
+      "description": "A signed-in student's single emoji reaction on a news article",
+      "type": "object",
+      "properties": {
+        "articleId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["like", "heart", "clap", "fire", "thinking"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["articleId", "userId", "type", "createdAt"]
+    },
+    "ArticleComment": {
+      "title": "Article Comment",
+      "description": "A student comment under a news article",
+      "type": "object",
+      "properties": {
+        "articleId": { "type": "string", "maxLength": 128 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "authorAvatar": { "type": "string", "maxLength": 1000 },
+        "content": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["articleId", "authorId", "authorName", "content", "createdAt"]
+    },
+    "Poll": {
+      "title": "Student Poll",
+      "description": "A weekly student poll created by admins",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string", "maxLength": 240 },
+        "options": { "type": "array", "description": "2 to 5 poll options with id and label" },
+        "status": { "type": "string", "enum": ["active", "closed"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["question", "options", "status", "createdBy", "createdAt"]
+    },
+    "PollVote": {
+      "title": "Poll Vote",
+      "description": "A user's vote on a student poll",
+      "type": "object",
+      "properties": {
+        "pollId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "optionId": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pollId", "userId", "optionId", "createdAt"]
+    },
+    "NewsTip": {
+      "title": "Student News Tip",
+      "description": "A student-submitted news tip for the editorial desk",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "details": { "type": "string", "maxLength": 3000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "isAnonymous": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "details", "category", "authorId", "authorName", "isAnonymous", "status", "createdAt"]
     },
     "ForumPost": {
       "title": "Forum Post",
@@ -86,9 +183,17 @@
       "schema": "User",
       "description": "User profiles"
     },
+    "/users/{userId}/bookmarks/{articleId}": {
+      "schema": "UserBookmark",
+      "description": "Personal saved news articles"
+    },
     "/admins/{userId}": {
       "schema": "Admin",
       "description": "Whitelisted admin users"
+    },
+    "/admin_emails/{emailId}": {
+      "schema": "AdminEmail",
+      "description": "Email-based admin permissions granted by Super Admin"
     },
     "/categories/{categoryId}": {
       "schema": "Category",
@@ -97,6 +202,26 @@
     "/news/{articleId}": {
       "schema": "NewsArticle",
       "description": "News articles"
+    },
+    "/news/{articleId}/reactions/{userId}": {
+      "schema": "ArticleReaction",
+      "description": "Student emoji reactions per news article"
+    },
+    "/news/{articleId}/comments/{commentId}": {
+      "schema": "ArticleComment",
+      "description": "Student comments on news articles"
+    },
+    "/polls/{pollId}": {
+      "schema": "Poll",
+      "description": "Weekly student polls"
+    },
+    "/polls/{pollId}/votes/{userId}": {
+      "schema": "PollVote",
+      "description": "Individual student votes on polls"
+    },
+    "/news_tips/{tipId}": {
+      "schema": "NewsTip",
+      "description": "Student news tip submissions"
     },
     "/forum_posts/{postId}": {
       "schema": "ForumPost",

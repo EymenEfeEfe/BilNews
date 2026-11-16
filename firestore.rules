@@ -11,14 +11,19 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isCEO() {
-      return isSignedIn() && request.auth.token.email == 'eymosuruk@gmail.com';
+    function isSuperAdmin() {
+      return isSignedIn() &&
+             request.auth.token.email != null &&
+             request.auth.token.email.lower() == 'eymosuruk@gmail.com';
     }
 
     function isAdmin() {
       return isSignedIn() && (
-        isCEO() ||
-        request.auth.token.email == 'demirsozen67@gmail.com' ||
+        isSuperAdmin() ||
+        (request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'demirsozen67@gmail.com' ||
+          exists(/databases/$(database)/documents/admin_emails/$(request.auth.token.email.lower()))
+        )) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
@@ -29,6 +34,13 @@ service cloud.firestore {
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidEmailId(id) {
+      return id is string &&
+             id.size() >= 5 &&
+             id.size() <= 200 &&
+             id.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
     }
 
     function incoming() {
@@ -51,6 +63,28 @@ service cloud.firestore {
              data.createdAt == request.time;
     }
 
+    function isValidAdminEmail(data, emailId) {
+      return data.keys().hasAll(['email', 'addedBy', 'createdAt']) &&
+             data.keys().hasOnly(['email', 'note', 'addedBy', 'createdAt']) &&
+             data.email == emailId &&
+             isValidEmailId(data.email) &&
+             data.addedBy == 'eymosuruk@gmail.com' &&
+             (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 100)) &&
+             data.createdAt == request.time;
+    }
+
+    function isValidBookmark(data, articleId, userId) {
+      return data.keys().hasAll(['articleId', 'userId', 'title', 'category', 'createdAt']) &&
+             data.keys().hasOnly(['articleId', 'userId', 'title', 'category', 'imageUrl', 'createdAt']) &&
+             data.articleId == articleId &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 2000)) &&
+             data.createdAt == request.time;
+    }
+
     function isValidNews(data) {
       return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'category', 'createdAt']) &&
              data.keys().hasOnly(['title', 'content', 'authorId', 'authorName', 'category', 'imageUrl', 'status', 'createdAt', 'updatedAt']) &&
@@ -61,6 +95,117 @@ service cloud.firestore {
              data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
              (!('status' in data) || data.status in ['published', 'draft']) &&
              (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 2000));
+    }
+
+    function isValidReactionCreate(data, articleId, userId) {
+      return data.keys().hasAll(['articleId', 'userId', 'type', 'createdAt']) &&
+             data.keys().hasOnly(['articleId', 'userId', 'type', 'createdAt', 'updatedAt']) &&
+             data.articleId == articleId &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.type in ['like', 'heart', 'clap', 'fire', 'thinking'] &&
+             data.createdAt == request.time &&
+             (!('updatedAt' in data) || data.updatedAt == request.time);
+    }
+
+    function isValidReactionUpdate(data, articleId, userId) {
+      return data.keys().hasAll(['articleId', 'userId', 'type', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['articleId', 'userId', 'type', 'createdAt', 'updatedAt']) &&
+             data.articleId == articleId &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.type in ['like', 'heart', 'clap', 'fire', 'thinking'] &&
+             data.createdAt == existing().createdAt &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidArticleComment(data, articleId) {
+      return data.keys().hasAll(['articleId', 'authorId', 'authorName', 'content', 'createdAt']) &&
+             data.keys().hasOnly(['articleId', 'authorId', 'authorName', 'authorAvatar', 'content', 'createdAt']) &&
+             data.articleId == articleId &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
+             (!('authorAvatar' in data) || data.authorAvatar == null || (data.authorAvatar is string && data.authorAvatar.size() <= 1000)) &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 1000 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidPollShape(data) {
+      return data.question is string && data.question.size() > 0 && data.question.size() <= 240 &&
+             data.options is list && data.options.size() >= 2 && data.options.size() <= 5 &&
+             data.options[0] is map &&
+             data.options[0].keys().hasAll(['id', 'label']) &&
+             data.options[0].keys().hasOnly(['id', 'label']) &&
+             data.options[0].id is string && data.options[0].id.size() > 0 && data.options[0].id.size() <= 64 &&
+             data.options[0].label is string && data.options[0].label.size() > 0 && data.options[0].label.size() <= 100 &&
+             data.status in ['active', 'closed'] &&
+             data.createdBy is string && data.createdBy.size() > 0 && data.createdBy.size() <= 128;
+    }
+
+    function isValidPollCreate(data) {
+      return data.keys().hasAll(['question', 'options', 'status', 'createdBy', 'createdAt']) &&
+             data.keys().hasOnly(['question', 'options', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+             isValidPollShape(data) &&
+             data.createdBy == request.auth.uid &&
+             data.createdAt == request.time;
+    }
+
+    function isValidPollUpdate(data) {
+      return data.keys().hasAll(['question', 'options', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['question', 'options', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+             isValidPollShape(data) &&
+             data.createdBy == existing().createdBy &&
+             data.createdAt == existing().createdAt &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidPollVoteCreate(data, pollId, userId) {
+      return data.keys().hasAll(['pollId', 'userId', 'optionId', 'createdAt']) &&
+             data.keys().hasOnly(['pollId', 'userId', 'optionId', 'createdAt', 'updatedAt']) &&
+             data.pollId == pollId &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.optionId is string && data.optionId.size() > 0 && data.optionId.size() <= 64 &&
+             data.createdAt == request.time &&
+             (!('updatedAt' in data) || data.updatedAt == request.time);
+    }
+
+    function isValidPollVoteUpdate(data, pollId, userId) {
+      return data.keys().hasAll(['pollId', 'userId', 'optionId', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['pollId', 'userId', 'optionId', 'createdAt', 'updatedAt']) &&
+             data.pollId == pollId &&
+             data.userId == userId &&
+             data.userId == request.auth.uid &&
+             data.optionId is string && data.optionId.size() > 0 && data.optionId.size() <= 64 &&
+             data.createdAt == existing().createdAt &&
+             data.updatedAt == request.time;
+    }
+
+    function isValidNewsTipCreate(data) {
+      return data.keys().hasAll(['title', 'details', 'category', 'authorId', 'authorName', 'isAnonymous', 'status', 'createdAt']) &&
+             data.keys().hasOnly(['title', 'details', 'category', 'authorId', 'authorName', 'isAnonymous', 'status', 'createdAt', 'updatedAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.details is string && data.details.size() > 0 && data.details.size() <= 3000 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
+             data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
+             data.isAnonymous is bool &&
+             data.status == 'pending' &&
+             data.createdAt == request.time;
+    }
+
+    function isValidNewsTipUpdate(data) {
+      return data.keys().hasAll(['title', 'details', 'category', 'authorId', 'authorName', 'isAnonymous', 'status', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['title', 'details', 'category', 'authorId', 'authorName', 'isAnonymous', 'status', 'createdAt', 'updatedAt']) &&
+             data.title == existing().title &&
+             data.details == existing().details &&
+             data.category == existing().category &&
+             data.authorId == existing().authorId &&
+             data.authorName == existing().authorName &&
+             data.isAnonymous == existing().isAnonymous &&
+             data.createdAt == existing().createdAt &&
+             data.status in ['pending', 'reviewed', 'archived'] &&
+             data.updatedAt == request.time;
     }
 
     function isValidCategoryCreate(data) {
@@ -105,8 +250,8 @@ service cloud.firestore {
     // --- Match Rules ---
 
     match /users/{userId} {
-      allow get: if isOwner(userId) || isCEO();
-      allow list: if isCEO();
+      allow get: if isOwner(userId) || isSuperAdmin();
+      allow list: if isSuperAdmin();
       allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
       allow update: if isValidId(userId) && isOwner(userId) &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['username', 'avatarUrl']) &&
@@ -114,12 +259,39 @@ service cloud.firestore {
                       incoming().role == existing().role &&
                       incoming().email == existing().email &&
                       incoming().createdAt == existing().createdAt;
+
+      match /bookmarks/{articleId} {
+        allow get: if isValidId(articleId) && isOwner(userId);
+        allow list: if isSignedIn() && request.auth.uid == userId && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(articleId) && isValidId(userId) && isOwner(userId) &&
+                        exists(/databases/$(database)/documents/news/$(articleId)) &&
+                        isValidBookmark(incoming(), articleId, userId);
+        allow delete: if isValidId(articleId) && isValidId(userId) && isOwner(userId);
+      }
     }
 
     match /admins/{userId} {
-      allow get: if isOwner(userId) || isCEO();
-      allow list: if isCEO();
-      allow write: if isValidId(userId) && isCEO();
+      allow get: if isOwner(userId) || isSuperAdmin();
+      allow list: if isSuperAdmin();
+      allow write: if isValidId(userId) && isSuperAdmin();
+    }
+
+    match /admin_emails/{emailId} {
+      allow get: if isValidEmailId(emailId) && (
+        isSuperAdmin() ||
+        (isSignedIn() && request.auth.token.email != null && request.auth.token.email.lower() == emailId)
+      );
+      allow list: if isSuperAdmin();
+      allow create: if isValidEmailId(emailId) && isSuperAdmin() && isValidAdminEmail(incoming(), emailId);
+      allow update: if isValidEmailId(emailId) && isSuperAdmin() &&
+                      incoming().keys().hasAll(['email', 'addedBy', 'createdAt']) &&
+                      incoming().keys().hasOnly(['email', 'note', 'addedBy', 'createdAt']) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['note']) &&
+                      incoming().email == existing().email &&
+                      incoming().addedBy == existing().addedBy &&
+                      incoming().createdAt == existing().createdAt &&
+                      (!('note' in incoming()) || incoming().note == null || (incoming().note is string && incoming().note.size() <= 100));
+      allow delete: if isValidEmailId(emailId) && isSuperAdmin();
     }
 
     match /news/{articleId} {
@@ -133,6 +305,58 @@ service cloud.firestore {
                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'imageUrl', 'status', 'updatedAt']) &&
                       incoming().updatedAt == request.time;
       allow delete: if isValidId(articleId) && isAdmin();
+
+      match /reactions/{userId} {
+        allow read: if true;
+        allow create: if isValidId(articleId) && isValidId(userId) && isOwner(userId) &&
+                        exists(/databases/$(database)/documents/news/$(articleId)) &&
+                        isValidReactionCreate(incoming(), articleId, userId);
+        allow update: if isValidId(articleId) && isValidId(userId) && isOwner(userId) &&
+                        exists(/databases/$(database)/documents/news/$(articleId)) &&
+                        isValidReactionUpdate(incoming(), articleId, userId) &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['type', 'updatedAt']);
+        allow delete: if isValidId(articleId) && isValidId(userId) && isOwner(userId);
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isValidId(articleId) && isValidId(commentId) && isSignedIn() &&
+                        exists(/databases/$(database)/documents/news/$(articleId)) &&
+                        isValidArticleComment(incoming(), articleId);
+        allow delete: if isValidId(articleId) && isValidId(commentId) &&
+                        (isOwner(existing().authorId) || isAdmin());
+      }
+    }
+
+    match /polls/{pollId} {
+      allow read: if true;
+      allow create: if isValidId(pollId) && isAdmin() && isValidPollCreate(incoming());
+      allow update: if isValidId(pollId) && isAdmin() && isValidPollUpdate(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['question', 'options', 'status', 'updatedAt']);
+      allow delete: if isValidId(pollId) && isAdmin();
+
+      match /votes/{userId} {
+        allow read: if true;
+        allow create: if isValidId(pollId) && isValidId(userId) && isOwner(userId) &&
+                        exists(/databases/$(database)/documents/polls/$(pollId)) &&
+                        get(/databases/$(database)/documents/polls/$(pollId)).data.status == 'active' &&
+                        isValidPollVoteCreate(incoming(), pollId, userId);
+        allow update: if isValidId(pollId) && isValidId(userId) && isOwner(userId) &&
+                        exists(/databases/$(database)/documents/polls/$(pollId)) &&
+                        get(/databases/$(database)/documents/polls/$(pollId)).data.status == 'active' &&
+                        isValidPollVoteUpdate(incoming(), pollId, userId) &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['optionId', 'updatedAt']);
+        allow delete: if isValidId(pollId) && isValidId(userId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    match /news_tips/{tipId} {
+      allow get: if isValidId(tipId) && (isAdmin() || (isSignedIn() && existing().authorId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.authorId == request.auth.uid);
+      allow create: if isValidId(tipId) && isSignedIn() && isValidNewsTipCreate(incoming());
+      allow update: if isValidId(tipId) && isAdmin() && isValidNewsTipUpdate(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isValidId(tipId) && (isAdmin() || (isSignedIn() && existing().authorId == request.auth.uid));
     }
 
     match /categories/{categoryId} {

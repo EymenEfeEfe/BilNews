@@ -1,5 +1,6 @@
 import React from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion, useScroll, useSpring } from 'motion/react';
 import {
   Newspaper,
   MessageSquare,
@@ -9,12 +10,15 @@ import {
   Sun,
   Moon,
   LogIn,
+  Bookmark,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Toaster } from '@/components/ui/sonner';
 import { Analytics } from '@vercel/analytics/react';
 import SaturnLogo from '@/src/components/SaturnLogo';
+import BookmarksDrawer from '@/src/components/BookmarksDrawer';
+import NewsTipModal from '@/src/components/NewsTipModal';
 import { useTheme } from '@/src/context/ThemeContext';
 import { useBilnews } from '@/src/context/BilnewsContext';
 import NewsListPage from '@/src/pages/NewsListPage';
@@ -27,7 +31,24 @@ import { PrivacyPolicyPage, TermsOfUsePage } from '@/src/pages/LegalPages';
 export default function App() {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const { user, authLoading, loginWithGoogle, logout } = useBilnews();
+  const {
+    user,
+    authLoading,
+    news,
+    bookmarks,
+    setBookmarksDrawerOpen,
+    loginWithGoogle,
+    logout,
+  } = useBilnews();
+
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, {
+    stiffness: 280,
+    damping: 32,
+    restDelta: 0.001,
+  });
+
+  const tickerItems = news.slice(0, 8);
 
   const isNewsActive =
     location.pathname === '/' || location.pathname.startsWith('/news');
@@ -46,9 +67,49 @@ export default function App() {
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans selection:bg-blue-100 dark:selection:bg-blue-900">
       <Analytics />
       <Toaster position="bottom-right" offset={24} theme={theme} richColors />
+      <BookmarksDrawer />
+      <NewsTipModal />
 
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-50 w-full border-b border-stone-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md">
+      {/* Top Reading Progress Bar */}
+      <motion.div
+        className="fixed top-0 left-0 right-0 z-[60] h-[3px] bg-gradient-to-r from-blue-600 via-sky-500 to-indigo-600 origin-left pointer-events-none"
+        style={{ scaleX }}
+        aria-hidden="true"
+      />
+
+      {/* Breaking News Ticker */}
+      <div className="w-full h-8 bg-slate-900 dark:bg-zinc-950 text-slate-200 border-b border-slate-800 dark:border-zinc-800 overflow-hidden flex items-center">
+        <div className="container mx-auto max-w-5xl px-4 sm:px-6 flex items-center gap-3 overflow-hidden">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-bold tracking-wider uppercase shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            SON DAKİKA
+          </span>
+
+          <div className="flex-1 overflow-hidden relative">
+            {tickerItems.length > 0 ? (
+              <div className="animate-ticker items-center gap-8 text-xs text-slate-300">
+                {[...tickerItems, ...tickerItems].map((item, idx) => (
+                  <Link
+                    key={`${item.id}-${idx}`}
+                    to={`/news/${item.id}`}
+                    className="inline-flex items-center gap-2 whitespace-nowrap hover:text-white transition-colors"
+                  >
+                    <span className="text-blue-400 font-semibold">•</span>
+                    <span>{item.title}</span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 truncate">
+                Bilnews · Okuldan güncel haberler, duyurular ve öğrenci forumu
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Top Glassmorphism Sticky Navigation Bar */}
+      <header className="sticky top-0 z-50 w-full backdrop-blur-md bg-white/80 dark:bg-zinc-900/80 border-b border-stone-200/80 dark:border-zinc-800/80 transition-colors duration-300">
         <div className="container mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-6 max-w-5xl">
           {/* Zone 1: Brand wordmark */}
           <Link
@@ -95,26 +156,59 @@ export default function App() {
             </Link>
           </nav>
 
-          {/* Zone 3: Theme toggle + Primary Auth action */}
+          {/* Zone 3: Bookmarks + Smooth Theme Switch + Primary Auth action */}
           <div className="flex items-center gap-2.5 shrink-0">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              onClick={toggleTheme}
-              aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
-              title={theme === 'dark' ? 'Açık Tema' : 'Koyu Tema'}
-              className="text-slate-600 dark:text-slate-300"
+              onClick={() => setBookmarksDrawerOpen(true)}
+              title="Kaydedilen Haberler"
+              aria-label="Kaydedilen Haberler"
+              className="relative text-slate-600 dark:text-slate-300"
             >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              <Bookmark className="w-4 h-4" />
+              {bookmarks.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-700 text-white text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  {bookmarks.length}
+                </span>
+              )}
             </Button>
 
+            <motion.button
+              type="button"
+              role="switch"
+              aria-checked={theme === 'dark'}
+              aria-label={theme === 'dark' ? 'Açık temaya geç' : 'Koyu temaya geç'}
+              title={theme === 'dark' ? 'Açık Tema' : 'Koyu Tema'}
+              onClick={toggleTheme}
+              whileTap={{ scale: 0.94 }}
+              className="relative inline-flex h-7 w-13 items-center rounded-full p-1 bg-stone-200 dark:bg-zinc-800 border border-stone-300/70 dark:border-zinc-700 transition-colors duration-300 cursor-pointer"
+            >
+              <span className="sr-only">Tema değiştir</span>
+              <Sun className="w-3.5 h-3.5 text-amber-500 ml-0.5" />
+              <Moon className="w-3.5 h-3.5 text-sky-400 ml-auto mr-0.5" />
+              <motion.span
+                layout
+                transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+                className={`absolute top-0.5 w-5.5 h-5.5 rounded-full bg-white dark:bg-zinc-950 shadow-sm flex items-center justify-center ${
+                  theme === 'dark' ? 'left-[26px]' : 'left-0.5'
+                }`}
+              >
+                {theme === 'dark' ? (
+                  <Moon className="w-3 h-3 text-sky-400" />
+                ) : (
+                  <Sun className="w-3 h-3 text-amber-500" />
+                )}
+              </motion.span>
+            </motion.button>
+
             {user ? (
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
-                  <Avatar className="w-8 h-8 border border-stone-200 dark:border-slate-700">
+                  <Avatar className="w-8 h-8 border border-stone-200 dark:border-zinc-700">
                     <AvatarImage src={user.photoURL || ''} alt={user.displayName || 'Profil'} />
-                    <AvatarFallback className="text-xs bg-stone-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
+                    <AvatarFallback className="text-xs bg-stone-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-200">
                       {(user.displayName || user.email || 'U')[0].toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
@@ -149,41 +243,51 @@ export default function App() {
         </div>
       </header>
 
-      {/* Route Content */}
+      {/* Route Content with Smooth Page Transitions */}
       <main className="flex-1 container mx-auto px-4 sm:px-6 py-6 max-w-5xl">
-        <Routes>
-          <Route path="/" element={<NewsListPage />} />
-          <Route path="/news/:id" element={<NewsDetailPage />} />
-          <Route path="/forum" element={<ForumListPage />} />
-          <Route path="/forum/:id" element={<ForumDetailPage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="/gizlilik" element={<PrivacyPolicyPage />} />
-          <Route path="/kullanim-kosullari" element={<TermsOfUsePage />} />
-          <Route
-            path="*"
-            element={
-              <div className="max-w-lg mx-auto py-20 text-center space-y-4">
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                  Sayfa Bulunamadı
-                </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Aradığınız sayfa mevcut değil veya taşınmış olabilir.
-                </p>
-                <Link to="/">
-                  <Button className="bg-blue-700 hover:bg-blue-800 text-white">
-                    Ana Sayfaya Dön
-                  </Button>
-                </Link>
-              </div>
-            }
-          />
-        </Routes>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+          >
+            <Routes location={location}>
+              <Route path="/" element={<NewsListPage />} />
+              <Route path="/news/:id" element={<NewsDetailPage />} />
+              <Route path="/forum" element={<ForumListPage />} />
+              <Route path="/forum/:id" element={<ForumDetailPage />} />
+              <Route path="/admin" element={<AdminPage />} />
+              <Route path="/gizlilik" element={<PrivacyPolicyPage />} />
+              <Route path="/kullanim-kosullari" element={<TermsOfUsePage />} />
+              <Route
+                path="*"
+                element={
+                  <div className="max-w-lg mx-auto py-20 text-center space-y-4">
+                    <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                      Sayfa Bulunamadı
+                    </h2>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      Aradığınız sayfa mevcut değil veya taşınmış olabilir.
+                    </p>
+                    <Link to="/">
+                      <Button className="bg-blue-700 hover:bg-blue-800 text-white">
+                        Ana Sayfaya Dön
+                      </Button>
+                    </Link>
+                  </div>
+                }
+              />
+            </Routes>
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Mobile Bottom Navigation */}
       <nav
         aria-label="Mobil menü"
-        className="md:hidden fixed bottom-0 left-0 z-50 w-full h-14 bg-white dark:bg-slate-950 border-t border-stone-200 dark:border-slate-800 flex items-center justify-around px-2"
+        className="md:hidden fixed bottom-0 left-0 z-50 w-full h-14 backdrop-blur-md bg-white/85 dark:bg-zinc-900/85 border-t border-stone-200 dark:border-zinc-800 flex items-center justify-around px-2"
       >
         <Link
           to="/"
@@ -221,7 +325,7 @@ export default function App() {
       </nav>
 
       {/* Footer */}
-      <footer className="bg-slate-900 dark:bg-slate-950 text-slate-400 border-t border-slate-800 py-8 px-4 pb-20 md:pb-8">
+      <footer className="bg-slate-900 dark:bg-zinc-950 text-slate-400 border-t border-slate-800 dark:border-zinc-800 py-8 px-4 pb-20 md:pb-8">
         <div className="container mx-auto max-w-5xl grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-2 space-y-3">
             <div className="flex items-center gap-2 text-white">
@@ -275,7 +379,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="container mx-auto max-w-5xl mt-8 pt-5 border-t border-slate-800 text-center text-xs text-slate-500">
+        <div className="container mx-auto max-w-5xl mt-8 pt-5 border-t border-slate-800 dark:border-zinc-800 text-center text-xs text-slate-500">
           © 2026 Bilnews · Öğrenci Yayını. Tüm hakları saklıdır.
         </div>
       </footer>

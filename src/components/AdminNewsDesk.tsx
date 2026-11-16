@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { db, auth, storage, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import {
   collection,
@@ -10,9 +11,13 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { useBilnews } from '@/src/context/BilnewsContext';
-import { NewsArticle, NewsStatus } from '@/src/types';
+import { NewsArticle, NewsStatus, NewsTip } from '@/src/types';
 import NewsCoverImage from '@/src/components/NewsCoverImage';
 import MarkdownRenderer from '@/src/components/MarkdownRenderer';
+import SpringModal from '@/src/components/SpringModal';
+import AdminPollsManager from '@/src/components/AdminPollsManager';
+import AdminTipsManager from '@/src/components/AdminTipsManager';
+import AdminManagersPanel from '@/src/components/AdminManagersPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
@@ -42,6 +47,7 @@ import {
   ChevronRight,
   FolderPlus,
   Tags,
+  Crown,
 } from 'lucide-react';
 import {
   ARTICLE_CATEGORIES,
@@ -65,9 +71,11 @@ export default function AdminNewsDesk() {
     categoryNames,
     posts,
     postsLoading,
+    polls,
+    isSuperAdmin,
   } = useBilnews();
 
-  const [sectionTab, setSectionTab] = useState<'news' | 'categories' | 'forum'>('news');
+  const [sectionTab, setSectionTab] = useState<'news' | 'polls' | 'tips' | 'categories' | 'forum' | 'managers'>('news');
 
   // Article form state
   const [title, setTitle] = useState('');
@@ -88,8 +96,12 @@ export default function AdminNewsDesk() {
 
   // Edit & list filter/pagination state
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    type: 'news' | 'category' | 'forum';
+    id: string;
+    label: string;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [listSearch, setListSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -98,7 +110,6 @@ export default function AdminNewsDesk() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCatId, setEditingCatId] = useState<string | null>(null);
   const [editingCatName, setEditingCatName] = useState('');
-  const [confirmDeleteCatId, setConfirmDeleteCatId] = useState<string | null>(null);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
 
   const trimmedImageUrl = imageUrl.trim();
@@ -149,6 +160,21 @@ export default function AdminNewsDesk() {
     setCategory(normalizeCategory(item.category));
     setImageUrl(item.imageUrl && isValidHttpUrl(item.imageUrl) ? item.imageUrl : '');
     setEditorMode('write');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleConvertTipToNews = (tip: NewsTip) => {
+    setSectionTab('news');
+    setEditingId(null);
+    setTitle(tip.title);
+    const creditNote = tip.isAnonymous
+      ? '> *Öğrenci ihbarından derlenmiştir (Anonim).*'
+      : `> *Öğrenci ihbarı: ${tip.authorName}*`;
+    setContent(`${tip.details}\n\n${creditNote}`);
+    setCategory(normalizeCategory(tip.category));
+    setImageUrl('');
+    setEditorMode('write');
+    toast.success('İhbar haber editörüne aktarıldı. Düzenleyip yayınlayabilirsiniz.');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -313,26 +339,33 @@ export default function AdminNewsDesk() {
     }
   };
 
-  const handleDeleteNews = async (id: string) => {
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, 'news', id));
-      toast.success('Haber yayından kaldırıldı.');
-      setConfirmDeleteId(null);
-      if (editingId === id) resetForm();
+      if (pendingDelete.type === 'news') {
+        await deleteDoc(doc(db, 'news', pendingDelete.id));
+        toast.success('Haber yayından kaldırıldı.');
+        if (editingId === pendingDelete.id) resetForm();
+      } else if (pendingDelete.type === 'category') {
+        await deleteDoc(doc(db, 'categories', pendingDelete.id));
+        toast.success('Kategori silindi.');
+      } else {
+        await deleteDoc(doc(db, 'forum_posts', pendingDelete.id));
+        toast.success('Forum gönderisi silindi.');
+      }
+      setPendingDelete(null);
     } catch (error) {
-      toast.error('Haber silinemedi.');
-      handleFirestoreError(error, OperationType.DELETE, `news/${id}`);
-    }
-  };
-
-  const handleDeleteForumPost = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'forum_posts', id));
-      toast.success('Forum gönderisi silindi.');
-      setConfirmDeletePostId(null);
-    } catch (error) {
-      toast.error('Forum gönderisi silinemedi.');
-      handleFirestoreError(error, OperationType.DELETE, `forum_posts/${id}`);
+      const col =
+        pendingDelete.type === 'news'
+          ? 'news'
+          : pendingDelete.type === 'category'
+          ? 'categories'
+          : 'forum_posts';
+      toast.error('Silme işlemi tamamlanamadı.');
+      handleFirestoreError(error, OperationType.DELETE, `${col}/${pendingDelete.id}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -424,17 +457,6 @@ export default function AdminNewsDesk() {
     }
   };
 
-  const handleDeleteCategory = async (catId: string) => {
-    try {
-      await deleteDoc(doc(db, 'categories', catId));
-      setConfirmDeleteCatId(null);
-      toast.success('Kategori silindi.');
-    } catch (error) {
-      toast.error('Kategori silinemedi.');
-      handleFirestoreError(error, OperationType.DELETE, `categories/${catId}`);
-    }
-  };
-
   const handleSeedDefaultCategories = async () => {
     setIsSavingCategory(true);
     try {
@@ -471,7 +493,7 @@ export default function AdminNewsDesk() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-stone-100 dark:bg-slate-800/80 w-fit overflow-x-auto">
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-stone-100 dark:bg-slate-800/80 w-fit max-w-full overflow-x-auto">
           <button
             type="button"
             onClick={() => setSectionTab('news')}
@@ -482,6 +504,28 @@ export default function AdminNewsDesk() {
             }`}
           >
             Haber Yönetimi
+          </button>
+          <button
+            type="button"
+            onClick={() => setSectionTab('polls')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 tabular-nums ${
+              sectionTab === 'polls'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Anketler ({polls.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSectionTab('tips')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+              sectionTab === 'tips'
+                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Gelen İhbarlar
           </button>
           <button
             type="button"
@@ -505,11 +549,33 @@ export default function AdminNewsDesk() {
           >
             Forum Moderasyonu ({posts.length})
           </button>
+          {isSuperAdmin && (
+            <button
+              type="button"
+              onClick={() => setSectionTab('managers')}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                sectionTab === 'managers'
+                  ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 shadow-sm'
+                  : 'text-amber-700/80 dark:text-amber-400/80 hover:text-amber-800 dark:hover:text-amber-300'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5" />
+              Yöneticiler
+            </button>
+          )}
         </div>
       </div>
 
-      {sectionTab === 'news' && (
-        <div className="space-y-10">
+      <AnimatePresence mode="wait">
+        {sectionTab === 'news' && (
+          <motion.div
+            key="tab-news"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-10"
+          >
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
             {/* Article Composer */}
             <Card className="lg:col-span-2 border border-stone-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900">
@@ -1053,34 +1119,21 @@ export default function AdminNewsDesk() {
                               Düzenle
                             </Button>
 
-                            {confirmDeleteId === item.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleDeleteNews(item.id)}
-                                >
-                                  Silmeyi Onayla
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setConfirmDeleteId(null)}
-                                >
-                                  İptal
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setConfirmDeleteId(item.id)}
-                                className="text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
-                                aria-label="Haberi sil"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setPendingDelete({
+                                  type: 'news',
+                                  id: item.id,
+                                  label: item.title,
+                                })
+                              }
+                              className="text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                              aria-label="Haberi sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                         </div>
                       );
@@ -1121,12 +1174,19 @@ export default function AdminNewsDesk() {
               )}
             </CardContent>
           </Card>
-        </div>
-      )}
+          </motion.div>
+        )}
 
-      {/* Dynamic Category Management Tab */}
-      {sectionTab === 'categories' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        {/* Dynamic Category Management Tab */}
+        {sectionTab === 'categories' && (
+          <motion.div
+            key="tab-categories"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
+          >
           <Card className="lg:col-span-5 border border-stone-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900">
             <form onSubmit={handleAddCategory}>
               <CardHeader>
@@ -1263,34 +1323,21 @@ export default function AdminNewsDesk() {
                               Düzenle
                             </Button>
 
-                            {confirmDeleteCatId === cat.id ? (
-                              <div className="flex items-center gap-1.5">
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => handleDeleteCategory(cat.id)}
-                                >
-                                  Sil
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setConfirmDeleteCatId(null)}
-                                >
-                                  İptal
-                                </Button>
-                              </div>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setConfirmDeleteCatId(cat.id)}
-                                className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
-                                aria-label="Kategoriyi sil"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setPendingDelete({
+                                  type: 'category',
+                                  id: cat.id,
+                                  label: cat.name,
+                                })
+                              }
+                              className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                              aria-label="Kategoriyi sil"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
                           </div>
                         </>
                       )}
@@ -1300,11 +1347,18 @@ export default function AdminNewsDesk() {
               )}
             </CardContent>
           </Card>
-        </div>
-      )}
+          </motion.div>
+        )}
 
-      {/* Forum Moderation Tab */}
-      {sectionTab === 'forum' && (
+        {/* Forum Moderation Tab */}
+        {sectionTab === 'forum' && (
+          <motion.div
+            key="tab-forum"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
         <Card className="border border-stone-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900">
           <CardHeader>
             <CardTitle className="text-slate-900 dark:text-slate-100 flex items-center gap-2 tabular-nums">
@@ -1350,34 +1404,21 @@ export default function AdminNewsDesk() {
                     </div>
 
                     <div className="shrink-0">
-                      {confirmDeletePostId === post.id ? (
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDeleteForumPost(post.id)}
-                          >
-                            Silmeyi Onayla
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setConfirmDeletePostId(null)}
-                          >
-                            İptal
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setConfirmDeletePostId(post.id)}
-                          className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 gap-1.5"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Kaldır
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setPendingDelete({
+                            type: 'forum',
+                            id: post.id,
+                            label: post.title,
+                          })
+                        }
+                        className="text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 gap-1.5"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Kaldır
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1385,7 +1426,90 @@ export default function AdminNewsDesk() {
             )}
           </CardContent>
         </Card>
-      )}
+          </motion.div>
+        )}
+        {/* Polls Management Tab */}
+        {sectionTab === 'polls' && (
+          <motion.div
+            key="tab-polls"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <AdminPollsManager />
+          </motion.div>
+        )}
+
+        {/* Student Tips Management Tab */}
+        {sectionTab === 'tips' && (
+          <motion.div
+            key="tab-tips"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <AdminTipsManager onConvertToNews={handleConvertTipToNews} />
+          </motion.div>
+        )}
+
+        {/* Super Admin Managers Tab */}
+        {sectionTab === 'managers' && isSuperAdmin && (
+          <motion.div
+            key="tab-managers"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <AdminManagersPanel />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Spring Delete Confirmation Modal */}
+      <SpringModal
+        open={Boolean(pendingDelete)}
+        onClose={() => !isDeleting && setPendingDelete(null)}
+        title="Silme İşlemini Onayla"
+        description={
+          pendingDelete?.type === 'news'
+            ? 'Bu haber kalıcı olarak yayından kaldırılacak.'
+            : pendingDelete?.type === 'category'
+            ? 'Bu kategori listeden kaldırılacak.'
+            : 'Bu forum gönderisi kalıcı olarak silinecek.'
+        }
+      >
+        <div className="space-y-5">
+          <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+            <strong className="text-slate-900 dark:text-slate-100">
+              &ldquo;{pendingDelete?.label}&rdquo;
+            </strong>{' '}
+            öğesini silmek istediğinizden emin misiniz?
+          </p>
+          <div className="flex items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeleting}
+              onClick={() => setPendingDelete(null)}
+            >
+              Vazgeç
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isDeleting}
+              onClick={handleConfirmDelete}
+              className="gap-2"
+            >
+              {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Evet, Sil
+            </Button>
+          </div>
+        </div>
+      </SpringModal>
     </div>
   );
 }

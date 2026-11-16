@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { motion } from 'motion/react';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { useBilnews } from '@/src/context/BilnewsContext';
@@ -19,6 +20,7 @@ import {
   FORUM_POST_CATEGORIES,
   normalizeCategory,
   formatTurkishDate,
+  formatRelativeTurkishDate,
 } from '@/src/lib/editorial';
 import { toast } from 'sonner';
 
@@ -157,16 +159,24 @@ export default function ForumListPage() {
           )}
 
           {postsLoading ? (
-            <div className="py-16 flex flex-col items-center justify-center rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-500 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-              <span className="text-sm">Tartışmalar yükleniyor...</span>
+            <div className="space-y-4">
+              {[1, 2, 3, 4].map((n) => (
+                <div
+                  key={n}
+                  className="rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3"
+                >
+                  <div className="h-3 w-40 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+                  <div className="h-5 w-3/4 rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+                  <div className="h-4 w-full rounded bg-stone-200 dark:bg-zinc-800 animate-shimmer" />
+                </div>
+              ))}
             </div>
           ) : filteredPosts.length > 0 ? (
             filteredPosts.map((post) => (
               <Link
                 key={post.id}
                 to={`/forum/${post.id}`}
-                className="group block rounded-xl border border-stone-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-blue-300 dark:hover:border-blue-800 transition-colors p-5 space-y-3"
+                className="group block rounded-xl border border-stone-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-blue-300 dark:hover:border-blue-800 hover:-translate-y-1 hover:shadow-xl transition-all duration-300 p-5 space-y-3"
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
@@ -175,10 +185,12 @@ export default function ForumListPage() {
                   <span aria-hidden="true">·</span>
                   <span>{post.authorName}</span>
                   <span aria-hidden="true">·</span>
-                  <span>{formatTurkishDate(post.createdAt)}</span>
+                  <span title={formatTurkishDate(post.createdAt)}>
+                    {formatRelativeTurkishDate(post.createdAt)}
+                  </span>
                 </div>
 
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors leading-snug">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors leading-snug">
                   {post.title}
                 </h3>
 
@@ -186,12 +198,12 @@ export default function ForumListPage() {
                   {post.content}
                 </p>
 
-                <div className="pt-3 border-t border-stone-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <div className="pt-3 border-t border-stone-100 dark:border-zinc-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span className="inline-flex items-center gap-1.5 font-medium tabular-nums">
                     <MessageSquare className="w-3.5 h-3.5" />
                     Tartışmayı Gör
                   </span>
-                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
                 </div>
               </Link>
             ))
@@ -326,21 +338,22 @@ export default function ForumListPage() {
                 const isActive = selectedTopic === cat;
                 const count = topicCounts[cat] ?? 0;
                 return (
-                  <button
+                  <motion.button
                     key={cat}
                     type="button"
+                    whileTap={{ scale: 0.96 }}
                     onClick={() => setSelectedTopic(cat)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
                       isActive
                         ? 'bg-blue-50 text-blue-700 font-semibold dark:bg-blue-950/60 dark:text-blue-400'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-stone-100 dark:hover:bg-slate-800'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-stone-100 dark:hover:bg-zinc-800'
                     }`}
                   >
                     <span>{cat}</span>
                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
                       {count}
                     </span>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>

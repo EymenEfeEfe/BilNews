@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   auth,
+  db,
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
@@ -9,42 +10,55 @@ import {
   EmailAuthProvider,
   linkWithCredential,
 } from '@/src/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ShieldCheck, Lock, Mail, Eye, EyeOff, AlertTriangle, Loader2, ExternalLink, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
-const ALLOWED_ADMINS: Record<string, string> = {
-  'eymosuruk@gmail.com': 'Obosbucoku.1',
+const SUPER_ADMIN_EMAIL = 'eymosuruk@gmail.com';
+const SUPER_ADMIN_PASSWORD = 'Obosbucoku.1';
+const LEGACY_ADMIN_PASSWORDS: Record<string, string> = {
   'demirsozen67@gmail.com': 'demirsozen1212',
 };
+
 const FIREBASE_PROVIDERS_URL =
   'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/providers';
 const FIREBASE_SETTINGS_URL =
   'https://console.firebase.google.com/project/gen-lang-client-0503930963/authentication/settings';
 
 interface AdminLoginGateProps {
-  onAuthenticated: () => void;
+  onAuthenticatedAdmin: () => void;
+  onAuthenticatedSuperAdmin: () => void;
 }
 
-export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps) {
+export default function AdminLoginGate({
+  onAuthenticatedAdmin,
+  onAuthenticatedSuperAdmin,
+}: AdminLoginGateProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showGoogleFallback, setShowGoogleFallback] = useState(false);
   const [showConsoleGuide, setShowConsoleGuide] = useState(false);
   const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
   const [copiedDomain, setCopiedDomain] = useState(false);
 
   const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 
-  const completeUnlock = () => {
-    sessionStorage.setItem('bilinfom_admin_verified', 'true');
-    toast.success('Yönetim Paneli açıldı! Hoş geldiniz.');
-    onAuthenticated();
+  const completeUnlock = (isSuper: boolean) => {
+    if (isSuper) {
+      sessionStorage.setItem('bilinfom_admin_verified', 'true');
+      sessionStorage.setItem('bilinfom_super_admin_verified', 'true');
+      toast.success('Süper Admin girişi doğrulandı! Hoş geldiniz.');
+      onAuthenticatedSuperAdmin();
+    } else {
+      sessionStorage.setItem('bilinfom_admin_verified', 'true');
+      toast.success('Yönetim Paneli açıldı! Hoş geldiniz.');
+      onAuthenticatedAdmin();
+    }
   };
 
   const handleCopyDomain = async () => {
@@ -63,17 +77,15 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     const code = err?.code || '';
     if (code === 'auth/unauthorized-domain') {
       setUnauthorizedDomain(currentHostname);
-      setShowGoogleFallback(true);
       setShowConsoleGuide(true);
       setErrorMessage(
         `Bu site adresi (${currentHostname}) Firebase yetkili domain listesinde ekli değil.`
       );
       return;
     }
-    setShowGoogleFallback(true);
     setShowConsoleGuide(true);
     if (code === 'auth/popup-blocked') {
-      setErrorMessage('Tarayıcı açılır pencereyi engelledi. Aşağıdaki butonla tekrar deneyin.');
+      setErrorMessage('Tarayıcı açılır pencereyi engelledi. Lütfen açılır pencerelere izin verip tekrar deneyin.');
     } else if (code === 'auth/popup-closed-by-user') {
       setErrorMessage('Google giriş penceresini seçmeden kapattınız. Tekrar deneyebilirsiniz.');
     } else {
@@ -81,18 +93,18 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     }
   };
 
-  const authenticateViaGoogleFallback = async (
+  const authenticateSuperOrLegacyViaGoogleFallback = async (
     targetEmail: string,
     targetPassword: string,
     linkPassword: boolean
   ) => {
     const result = await signInWithPopup(auth, googleProvider);
     const resultEmail = result.user.email?.toLowerCase() || '';
-    if (!resultEmail || !(resultEmail in ALLOWED_ADMINS) || (targetEmail && resultEmail !== targetEmail)) {
+    if (!resultEmail || resultEmail !== targetEmail) {
       setErrorMessage('Yetkisiz hesap. Lütfen girdiğiniz yetkili yönetici hesabıyla doğrulayın.');
       return false;
     }
-    if (linkPassword && ALLOWED_ADMINS[resultEmail] === targetPassword) {
+    if (linkPassword) {
       try {
         const cred = EmailAuthProvider.credential(resultEmail, targetPassword);
         await linkWithCredential(result.user, cred);
@@ -100,24 +112,38 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         // Provider might not be enabled yet or already linked
       }
     }
-    completeUnlock();
+    completeUnlock(resultEmail === SUPER_ADMIN_EMAIL && targetPassword === SUPER_ADMIN_PASSWORD);
     return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    setShowGoogleFallback(false);
     setShowConsoleGuide(false);
     setUnauthorizedDomain(null);
 
     const normalizedEmail = email.trim().toLowerCase();
-    const expectedPassword = ALLOWED_ADMINS[normalizedEmail];
+    const isSuperAttempt = normalizedEmail === SUPER_ADMIN_EMAIL;
+    const legacyExpected = LEGACY_ADMIN_PASSWORDS[normalizedEmail];
 
-    if (!expectedPassword || password !== expectedPassword) {
-      setErrorMessage('Yetkisiz giriş! E-posta veya şifre hatalı.');
+    if (isSuperAttempt) {
+      if (password !== SUPER_ADMIN_PASSWORD) {
+        setErrorMessage('Yetkisiz giriş! Süper Admin e-posta veya şifresi hatalı.');
+        return;
+      }
+    } else if (legacyExpected) {
+      if (password !== legacyExpected) {
+        setErrorMessage('Yetkisiz giriş! E-posta veya şifre hatalı.');
+        return;
+      }
+    } else {
+      setErrorMessage(
+        'E-posta/şifre girişi yalnızca Süper Admin ve şifre tanımlı yöneticiler içindir. Süper Admin tarafından e-posta ile yetkilendirildiyseniz aşağıdaki Google ile Yönetici Girişi butonunu kullanın.'
+      );
       return;
     }
+
+    const expectedPassword = isSuperAttempt ? SUPER_ADMIN_PASSWORD : legacyExpected;
 
     setIsSubmitting(true);
     try {
@@ -128,28 +154,32 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
           );
           if (!hasPasswordProvider) {
             try {
-              const cred = EmailAuthProvider.credential(normalizedEmail, password);
+              const cred = EmailAuthProvider.credential(normalizedEmail, expectedPassword);
               await linkWithCredential(auth.currentUser, cred);
             } catch {
               // Safe to ignore
             }
           }
-          completeUnlock();
+          completeUnlock(isSuperAttempt);
           return;
         }
         await signOut(auth);
       }
 
       try {
-        await signInWithEmailAndPassword(auth, normalizedEmail, password);
-        completeUnlock();
+        await signInWithEmailAndPassword(auth, normalizedEmail, expectedPassword);
+        completeUnlock(isSuperAttempt);
         return;
       } catch (signInErr: any) {
         const code = signInErr?.code || '';
 
         if (code === 'auth/operation-not-allowed') {
           try {
-            await authenticateViaGoogleFallback(normalizedEmail, password, false);
+            await authenticateSuperOrLegacyViaGoogleFallback(
+              normalizedEmail,
+              expectedPassword,
+              false
+            );
             return;
           } catch (popupErr: any) {
             handlePopupError(popupErr);
@@ -159,14 +189,18 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
         if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') {
           try {
-            await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-            completeUnlock();
+            await createUserWithEmailAndPassword(auth, normalizedEmail, expectedPassword);
+            completeUnlock(isSuperAttempt);
             return;
           } catch (createErr: any) {
             const createCode = createErr?.code || '';
             if (createCode === 'auth/email-already-in-use') {
               try {
-                await authenticateViaGoogleFallback(normalizedEmail, password, true);
+                await authenticateSuperOrLegacyViaGoogleFallback(
+                  normalizedEmail,
+                  expectedPassword,
+                  true
+                );
                 return;
               } catch (popupErr: any) {
                 handlePopupError(popupErr);
@@ -175,7 +209,11 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             }
             if (createCode === 'auth/operation-not-allowed') {
               try {
-                await authenticateViaGoogleFallback(normalizedEmail, password, false);
+                await authenticateSuperOrLegacyViaGoogleFallback(
+                  normalizedEmail,
+                  expectedPassword,
+                  false
+                );
                 return;
               } catch (popupErr: any) {
                 handlePopupError(popupErr);
@@ -196,12 +234,42 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     }
   };
 
-  const handleGoogleVerifyAndLink = async () => {
+  // Sign-in flow for admins granted access by email by the Super Admin
+  const handleGoogleAdminLogin = async () => {
     setIsSubmitting(true);
     setErrorMessage(null);
     setUnauthorizedDomain(null);
+    setShowConsoleGuide(false);
+
     try {
-      await authenticateViaGoogleFallback(email.trim().toLowerCase(), password, true);
+      const result = await signInWithPopup(auth, googleProvider);
+      const resultEmail = result.user.email?.toLowerCase() || '';
+
+      if (!resultEmail) {
+        setErrorMessage('Google hesabınızdan e-posta adresi alınamadı.');
+        return;
+      }
+
+      if (resultEmail === SUPER_ADMIN_EMAIL) {
+        setErrorMessage(
+          'Süper Admin hesabı için yukarıdaki forma e-posta ve Süper Admin şifrenizi girerek giriş yapmalısınız.'
+        );
+        return;
+      }
+
+      if (resultEmail in LEGACY_ADMIN_PASSWORDS) {
+        completeUnlock(false);
+        return;
+      }
+
+      const grantSnap = await getDoc(doc(db, 'admin_emails', resultEmail));
+      if (grantSnap.exists()) {
+        completeUnlock(false);
+      } else {
+        setErrorMessage(
+          `${resultEmail} adresine henüz Süper Admin tarafından yöneticilik yetkisi verilmemiş.`
+        );
+      }
     } catch (err: any) {
       handlePopupError(err);
     } finally {
@@ -220,7 +288,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             Yönetim Paneli Girişi
           </CardTitle>
           <CardDescription className="text-slate-600 dark:text-slate-400">
-            Haber eklemek ve içerikleri yönetmek için yetkili yönetici bilgilerinizle giriş yapın.
+            Süper Admin şifresiyle veya Süper Admin tarafından yetkilendirilmiş Google e-postanızla giriş yapın.
           </CardDescription>
         </CardHeader>
 
@@ -336,21 +404,30 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                   Doğrulanıyor...
                 </>
               ) : (
-                'Yönetim Paneline Giriş Yap'
+                'Şifre ile Giriş Yap'
               )}
             </Button>
 
-            {showGoogleFallback && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isSubmitting}
-                onClick={handleGoogleVerifyAndLink}
-                className="w-full border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-              >
-                Google ile Doğrula ve Devam Et
-              </Button>
-            )}
+            <div className="relative w-full py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-stone-200 dark:border-slate-800" />
+              </div>
+              <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+                <span className="bg-white dark:bg-slate-900 px-2 text-slate-400">
+                  veya yetkili e-posta ile
+                </span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={handleGoogleAdminLogin}
+              className="w-full border-stone-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-stone-50 dark:hover:bg-slate-800"
+            >
+              Yetkili Google Hesabıyla Giriş Yap
+            </Button>
           </CardFooter>
         </form>
       </Card>
