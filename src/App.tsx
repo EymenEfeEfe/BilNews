@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Toaster } from '@/components/ui/sonner';
+import { Analytics } from '@vercel/analytics/react';
 import SaturnLogo from '@/src/components/SaturnLogo';
 import { useTheme } from '@/src/context/ThemeContext';
 import { useBilnews } from '@/src/context/BilnewsContext';
@@ -43,6 +44,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans selection:bg-blue-100 dark:selection:bg-blue-900">
+      <Analytics />
       <Toaster position="bottom-right" offset={24} theme={theme} richColors />
 
       {/* Top Navigation Bar */}
