@@ -49,13 +49,31 @@ service cloud.firestore {
 
     function isValidNews(data) {
       return data.keys().hasAll(['title', 'content', 'authorId', 'authorName', 'category', 'createdAt']) &&
-             data.keys().hasOnly(['title', 'content', 'authorId', 'authorName', 'category', 'imageUrl', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['title', 'content', 'authorId', 'authorName', 'category', 'imageUrl', 'status', 'createdAt', 'updatedAt']) &&
              data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
-             data.content is string && data.content.size() > 0 && data.content.size() <= 10000 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 20000 &&
              data.authorId is string && data.authorId.size() <= 128 &&
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
              data.category is string && data.category.size() > 0 && data.category.size() <= 50 &&
-             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000));
+             (!('status' in data) || data.status in ['published', 'draft']) &&
+             (!('imageUrl' in data) || data.imageUrl == null || (data.imageUrl is string && data.imageUrl.size() <= 2000));
+    }
+
+    function isValidCategoryCreate(data) {
+      return data.keys().hasAll(['name', 'slug', 'createdAt']) &&
+             data.keys().hasOnly(['name', 'slug', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
+             data.slug is string && data.slug.size() > 0 && data.slug.size() <= 60 &&
+             data.createdAt == request.time;
+    }
+
+    function isValidCategoryUpdate(data) {
+      return data.keys().hasAll(['name', 'slug', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly(['name', 'slug', 'createdAt', 'updatedAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
+             data.slug is string && data.slug.size() > 0 && data.slug.size() <= 60 &&
+             data.createdAt == existing().createdAt &&
+             data.updatedAt == request.time;
     }
 
     function isValidForumPost(data) {
@@ -108,9 +126,17 @@ service cloud.firestore {
       allow update: if isValidId(articleId) && isAdmin() && isValidNews(incoming()) &&
                       incoming().createdAt == existing().createdAt &&
                       incoming().authorId == existing().authorId &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'imageUrl', 'updatedAt']) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'imageUrl', 'status', 'updatedAt']) &&
                       incoming().updatedAt == request.time;
       allow delete: if isValidId(articleId) && isAdmin();
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create: if isValidId(categoryId) && isAdmin() && isValidCategoryCreate(incoming());
+      allow update: if isValidId(categoryId) && isAdmin() && isValidCategoryUpdate(incoming()) &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'slug', 'updatedAt']);
+      allow delete: if isValidId(categoryId) && isAdmin();
     }
 
     match /forum_posts/{postId} {
@@ -132,11 +158,6 @@ service cloud.firestore {
                         incoming().postId == postId;
         allow delete: if isValidId(commentId) && (isOwner(existing().authorId) || isAdmin());
       }
-    }
-
-    match /categories/{categoryId} {
-      allow read: if true;
-      allow write: if false;
     }
   }
 }

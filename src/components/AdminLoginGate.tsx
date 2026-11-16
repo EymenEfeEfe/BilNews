@@ -40,7 +40,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
   const completeUnlock = () => {
     sessionStorage.setItem('bilinfom_admin_verified', 'true');
-    toast.success('Admin Paneli açıldı! Hoş geldiniz.');
+    toast.success('Yönetim Paneli açıldı! Hoş geldiniz.');
     onAuthenticated();
   };
 
@@ -49,7 +49,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     try {
       await navigator.clipboard.writeText(unauthorizedDomain);
       setCopiedDomain(true);
-      toast.success('Domain kopyalandı!');
+      toast.success('Alan adı kopyalandı!');
       setTimeout(() => setCopiedDomain(false), 2000);
     } catch {
       toast.error('Kopyalanamadı, lütfen elle seçip kopyalayın.');
@@ -72,7 +72,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
     if (code === 'auth/popup-blocked') {
       setErrorMessage('Tarayıcı açılır pencereyi engelledi. Aşağıdaki butonla tekrar deneyin.');
     } else if (code === 'auth/popup-closed-by-user') {
-      setErrorMessage('Google giriş penceresi kapatıldı.');
+      setErrorMessage('Google giriş penceresini seçmeden kapattınız. Tekrar deneyebilirsiniz.');
     } else {
       setErrorMessage(err?.message || 'Google doğrulaması tamamlanamadı.');
     }
@@ -81,7 +81,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
   const authenticateViaGoogleFallback = async (linkPassword: boolean) => {
     const result = await signInWithPopup(auth, googleProvider);
     if (result.user.email?.toLowerCase() !== ALLOWED_ADMIN_EMAIL) {
-      setErrorMessage('Yetkisiz hesap. Bu panele yalnızca yetkili admin hesabı erişebilir.');
+      setErrorMessage('Yetkisiz hesap. Bu panele yalnızca yetkili yönetici hesabı erişebilir.');
       return false;
     }
     if (linkPassword && password === ALLOWED_ADMIN_PASS) {
@@ -89,7 +89,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
         await linkWithCredential(result.user, cred);
       } catch {
-        // Provider might not be enabled yet or already linked; Google auth still grants Firestore CEO access
+        // Provider might not be enabled yet or already linked
       }
     }
     completeUnlock();
@@ -121,7 +121,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             const cred = EmailAuthProvider.credential(ALLOWED_ADMIN_EMAIL, password);
             await linkWithCredential(auth.currentUser, cred);
           } catch {
-            // Safe to ignore if Email/Password provider is not enabled yet
+            // Safe to ignore
           }
         }
         completeUnlock();
@@ -177,7 +177,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
         throw signInErr;
       }
     } catch (err: any) {
-      console.error('Admin login error:', err);
+      console.error('Admin giriş hatası:', err);
       setErrorMessage(err?.message || 'Giriş sırasında bir hata oluştu.');
     } finally {
       setIsSubmitting(false);
@@ -199,35 +199,34 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
 
   return (
     <div className="max-w-md mx-auto py-10">
-      <Card className="border-none shadow-2xl bg-white overflow-hidden">
-        <div className="h-1.5 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-red-600" />
-        <CardHeader className="text-center space-y-2 pb-4">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-lg">
-            <ShieldCheck className="w-7 h-7 text-blue-400" />
+      <Card className="border border-stone-200 dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 overflow-hidden">
+        <CardHeader className="text-center space-y-2 pb-4 border-b border-stone-100 dark:border-slate-800">
+          <div className="mx-auto w-12 h-12 rounded-xl bg-slate-900 dark:bg-blue-700 text-white flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6" />
           </div>
-          <CardTitle className="text-2xl font-black tracking-tight text-slate-900">
-            Admin Panel Girişi
+          <CardTitle className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            Yönetim Paneli Girişi
           </CardTitle>
-          <CardDescription>
-            Haber eklemek ve yönetmek için yetkili admin bilgilerinizle giriş yapın.
+          <CardDescription className="text-slate-600 dark:text-slate-400">
+            Haber eklemek ve içerikleri yönetmek için yetkili yönetici bilgilerinizle giriş yapın.
           </CardDescription>
         </CardHeader>
 
         <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-6">
             {errorMessage && (
-              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs leading-relaxed flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+              <div className="p-3.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs leading-relaxed flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                 <div className="space-y-2.5 flex-1">
                   <p className="font-medium">{errorMessage}</p>
 
                   {unauthorizedDomain && (
-                    <div className="p-2.5 rounded bg-white border border-amber-200 space-y-2">
-                      <p className="text-[11px] text-slate-600">
-                        Vercel adresinizin Google girişi yapabilmesi için Firebase Console → Authentication → Settings → <strong>Authorized domains</strong> listesine şu adresi ekleyin:
+                    <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 space-y-2">
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                        Firebase Console → Authentication → Settings → <strong>Authorized domains</strong> listesine şu adresi ekleyin:
                       </p>
                       <div className="flex items-center gap-2">
-                        <code className="flex-1 px-2 py-1 rounded bg-slate-100 text-slate-900 font-mono text-[11px] truncate">
+                        <code className="flex-1 px-2 py-1 rounded bg-stone-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono text-[11px] truncate">
                           {unauthorizedDomain}
                         </code>
                         <Button
@@ -244,7 +243,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                         href={FIREBASE_SETTINGS_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline text-[11px]"
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 dark:text-blue-400 hover:underline text-[11px]"
                       >
                         Yetkili Domain Ayarlarını Aç <ExternalLink className="w-3 h-3" />
                       </a>
@@ -257,7 +256,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                         href={FIREBASE_PROVIDERS_URL}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline text-[11px]"
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 dark:text-blue-400 hover:underline text-[11px]"
                       >
                         Firebase Console&apos;da Email/Password&apos;u aç <ExternalLink className="w-3 h-3" />
                       </a>
@@ -268,8 +267,8 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Admin E-posta
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Yönetici E-posta
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -279,15 +278,15 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                   placeholder="E-posta adresinizi girin"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="pl-9"
+                  className="pl-9 bg-stone-50 dark:bg-slate-800/70 border-stone-200 dark:border-slate-700"
                   autoComplete="email"
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Admin Şifresi
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Yönetici Şifresi
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -297,14 +296,15 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                   placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-9 pr-10"
+                  className="pl-9 pr-10 bg-stone-50 dark:bg-slate-800/70 border-stone-200 dark:border-slate-700"
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                   tabIndex={-1}
+                  aria-label="Şifreyi göster/gizle"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -316,7 +316,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white h-11 font-bold"
+              className="w-full bg-slate-900 hover:bg-slate-800 dark:bg-blue-700 dark:hover:bg-blue-800 text-white h-11 font-semibold"
             >
               {isSubmitting ? (
                 <>
@@ -324,7 +324,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                   Doğrulanıyor...
                 </>
               ) : (
-                'Admin Panele Giriş Yap'
+                'Yönetim Paneline Giriş Yap'
               )}
             </Button>
 
@@ -334,7 +334,7 @@ export default function AdminLoginGate({ onAuthenticated }: AdminLoginGateProps)
                 variant="outline"
                 disabled={isSubmitting}
                 onClick={handleGoogleVerifyAndLink}
-                className="w-full border-blue-200 text-blue-700 hover:bg-blue-50"
+                className="w-full border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
               >
                 Google ile Doğrula ve Devam Et
               </Button>
